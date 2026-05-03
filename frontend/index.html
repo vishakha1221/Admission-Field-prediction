@@ -72,7 +72,6 @@
 
             <div class="action-row">
               <button type="submit" id="predict-btn" class="btn btn-primary">Predict</button>
-              <button type="button" id="check-accuracy-btn" class="btn btn-secondary">Check Accuracy</button>
             </div>
           </form>
         </article>
@@ -87,51 +86,47 @@
               </div>
               <p id="result" class="result-text">No prediction yet.</p>
               <span id="result-badge" class="result-badge">Awaiting Input</span>
-            </section>
-
-            <section class="result-card" id="accuracy-box">
-              <h3>Accuracy Check</h3>
-              <p id="accuracy-result" class="accuracy-text">No input-based accuracy estimate yet.</p>
-              <p id="accuracy-percentage" class="accuracy-percentage">0%</p>
-              <div class="progress-track" aria-hidden="true">
-                <span id="accuracy-progress-fill" class="progress-fill"></span>
-              </div>
+              <button type="button" id="check-accuracy-btn" class="btn btn-secondary result-action-btn">Check Accuracy</button>
+              <p id="accuracy-result" class="accuracy-text">No accuracy check yet.</p>
             </section>
           </div>
         </article>
       </section>
 
-      <section id="institute-section" class="card section-block">
+      <section id="recommendation-section" class="card section-block">
         <div class="section-head section-divider">
-          <h2>Institute Search</h2>
-          <p>Filter by location, branch, institute, and hostel availability.</p>
+          <h2>Verified Eligible Institutes</h2>
+          <p>Filter the predicted matches by city, branch, type, and hostel availability. Tuition fees and website links are pulled from the verified fee and institute master sources.</p>
         </div>
 
-        <form id="filter-form" class="filter-grid">
+        <div class="recommendation-filters">
           <label>
             City
-            <select id="filter-city">
+            <select id="search-city">
               <option value="">All Cities</option>
             </select>
           </label>
 
           <label>
             Branch
-            <select id="filter-branch">
+            <select id="search-branch">
               <option value="">All Branches</option>
             </select>
           </label>
 
           <label>
-            Institute
-            <select id="filter-institute">
-              <option value="">All Institutes</option>
+            Type
+            <select id="search-type">
+              <option value="">All Types</option>
+              <option value="Govt">Govt</option>
+              <option value="GIA">GIA</option>
+              <option value="SFI">SFI</option>
             </select>
           </label>
 
           <label>
             Boys Hostel
-            <select id="filter-boys-hostel">
+            <select id="search-boys-hostel">
               <option value="">All</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
@@ -140,49 +135,38 @@
 
           <label>
             Girls Hostel
-            <select id="filter-girls-hostel">
+            <select id="search-girls-hostel">
               <option value="">All</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
             </select>
           </label>
 
-          <div class="filter-action">
-            <button type="submit" class="btn btn-primary">Search Institutes</button>
+          <div class="filter-action recommendation-action">
+            <button type="button" id="search-recommendations-btn" class="btn btn-primary">Search Institutes</button>
           </div>
-        </form>
-      </section>
+        </div>
 
-      <section class="card table-card">
-        <div class="table-wrap">
+        <div class="recommendation-summary">
+          <span id="recommendation-count" class="pill">0 matches</span>
+          <p id="recommendation-note">Run a prediction to see verified institute matches.</p>
+        </div>
+
+        <div class="table-wrap recommendation-table-wrap">
           <table>
             <thead>
               <tr>
                 <th>No.</th>
-                <th>Institute</th>
-                <th>City</th>
+                <th>Institute Name &amp; Branch</th>
+                <th>College Type</th>
+                <th>Tuition Fees</th>
                 <th>Website</th>
               </tr>
             </thead>
-            <tbody id="filter-results">
-              <tr><td colspan="4">No results yet.</td></tr>
+            <tbody id="recommendation-results">
+              <tr><td colspan="5">No recommendation results yet.</td></tr>
             </tbody>
           </table>
-        </div>
-
-        <div id="pagination-controls" class="pagination-bar">
-          <label class="page-size-control" for="page-size-select">
-            Rows per page
-            <select id="page-size-select">
-              <option value="10">10</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="all">All</option>
-            </select>
-          </label>
-          <button type="button" id="prev-page" class="btn btn-secondary">Previous</button>
-          <p id="page-info">Page 1 of 1</p>
-          <button type="button" id="next-page" class="btn btn-secondary">Next</button>
         </div>
       </section>
     </section>

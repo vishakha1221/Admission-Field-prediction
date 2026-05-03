@@ -1,6 +1,7 @@
 from pathlib import Path
 from functools import lru_cache
 from math import ceil
+import re
 import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +20,7 @@ from backend.preprocess import (
     load_institute_search_dataset,
     load_prediction_dataset,
     normalize_text,
+    standardize_branch,
     standardize_institute_name,
     standardize_category,
     standardize_quota,
@@ -29,6 +31,10 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 MODEL_FILE = BASE_DIR / "model" / "model.pkl"
 DATA_FILE = BASE_DIR / "data" / "acpc_admission_data.csv"
 ENRICHED_DATA_FILE = BASE_DIR / "data" / "acpc_admission_enriched.csv"
+FEE_DATA_FILES = [
+    BASE_DIR / "data" / "acpc_admission_with_original_fees_data.csv",
+    BASE_DIR / "data" / "final_acpc_with_fee_data.csv",
+]
 
 
 PREDICTION_DEFAULTS = {
@@ -64,6 +70,280 @@ def load_institute_master_dataset():
     institute_master = institute_master.sort_values(["_dedupe_key", "_has_website"], ascending=[True, False])
     institute_master = institute_master.drop_duplicates(subset=["_dedupe_key"])
     return institute_master
+
+
+@lru_cache(maxsize=1)
+def load_institute_master_lookup():
+    """Build fast lookups for city and hostel metadata."""
+    institute_master = load_institute_master_dataset()
+    if institute_master is None or institute_master.empty:
+        return {}
+
+    lookup = {}
+    for _, row in institute_master.iterrows():
+        lookup[str(row["_dedupe_key"])] = {
+            "city": str(row.get("city", "") or "").strip(),
+            "boys_hostel": str(row.get("boys_hostel", "") or "").strip(),
+            "girls_hostel": str(row.get("girls_hostel", "") or "").strip(),
+            "official_website": str(row.get("official_website", "") or "").strip(),
+        }
+
+    return lookup
+
+
+def _extract_fee_amount(value):
+    """Extract the first numeric fee amount from the source text."""
+    if value is None or pd.isna(value):
+        return None
+
+    match = re.search(r"(\d[\d,]*)", str(value))
+    if not match:
+        return None
+
+    try:
+        return int(match.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _academic_year_sort_key(value):
+    """Turn an academic year string into a sortable integer key."""
+    if value is None or pd.isna(value):
+        return 0
+
+    match = re.search(r"(\d{4})", str(value))
+    if not match:
+        return 0
+
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return 0
+
+
+@lru_cache(maxsize=1)
+def load_fee_recommendation_dataset():
+    """Load the fee dataset and enrich it with verified website links."""
+    fee_file = next((candidate for candidate in FEE_DATA_FILES if candidate.exists()), None)
+    if fee_file is None:
+        return pd.DataFrame()
+
+    dataset = pd.read_csv(fee_file).copy()
+    required_columns = [
+        "institute_name",
+        "course_name",
+        "category",
+        "quota",
+        "admission_field",
+        "tuition_fee",
+        "college_type",
+        "district",
+        "academic_year",
+        "first_rank",
+        "last_rank",
+    ]
+    for column in required_columns:
+        if column not in dataset.columns:
+            dataset[column] = ""
+
+    dataset["institute_name"] = dataset["institute_name"].fillna("").astype(str).map(standardize_institute_name)
+    dataset["course_name"] = dataset["course_name"].fillna("").astype(str).map(standardize_branch)
+    dataset["admission_field"] = dataset["admission_field"].fillna("").astype(str).map(standardize_branch)
+    dataset["category"] = dataset["category"].fillna("").astype(str).map(standardize_category)
+    dataset["quota"] = dataset["quota"].fillna("").astype(str).map(standardize_quota)
+    dataset["college_type"] = dataset["college_type"].fillna("").astype(str).str.strip()
+    dataset["district"] = dataset["district"].fillna("").astype(str).str.strip()
+    dataset["tuition_fee"] = dataset["tuition_fee"].fillna("").astype(str).str.strip()
+    dataset["fee_amount"] = dataset["tuition_fee"].map(_extract_fee_amount)
+    dataset["rank_floor"] = pd.to_numeric(dataset["first_rank"], errors="coerce")
+    dataset["rank_ceiling"] = pd.to_numeric(dataset["last_rank"], errors="coerce")
+    dataset["academic_year_sort"] = dataset["academic_year"].map(_academic_year_sort_key)
+    dataset["institute_key"] = dataset["institute_name"].map(normalize_text)
+
+    institute_master = load_institute_master_dataset()
+    lookup = load_institute_master_lookup()
+
+    dataset["official_website"] = dataset["institute_key"].map(
+        lambda key: lookup.get(str(key), {}).get("official_website", "")
+    ).fillna("").astype(str).str.strip()
+    dataset["city"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("city", "")).fillna("").astype(str).str.strip()
+    dataset["boys_hostel"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("boys_hostel", "")).fillna("").astype(str).str.strip()
+    dataset["girls_hostel"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("girls_hostel", "")).fillna("").astype(str).str.strip()
+    dataset = dataset[
+        (dataset["institute_name"].astype(str).str.strip() != "")
+        & (dataset["course_name"].astype(str).str.strip() != "")
+        & (dataset["admission_field"].astype(str).str.strip() != "")
+        & (dataset["category"].astype(str).str.strip() != "")
+        & (dataset["quota"].astype(str).str.strip() != "")
+        & (dataset["college_type"].astype(str).str.strip() != "")
+        & (dataset["district"].astype(str).str.strip() != "")
+        & dataset["fee_amount"].notna()
+    ].copy()
+
+    dataset = dataset.sort_values(
+        ["academic_year_sort", "fee_amount", "rank_ceiling", "rank_floor", "institute_name"],
+        ascending=[False, True, True, True, True],
+    )
+    dataset = dataset.drop_duplicates(
+        subset=["institute_key", "course_name", "admission_field", "category", "quota", "college_type", "district"],
+        keep="first",
+    )
+    return dataset
+
+
+def _normalize_college_type(value):
+    """Normalize college type filters to source values."""
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if text.casefold() == "none":
+        return ""
+
+    return text
+
+
+def _parse_optional_int(value):
+    """Convert a numeric form value to an int if possible."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_min=None, fee_max=None, college_type=None, limit=20):
+    """Return verified institute rows that match the prediction and optional filters."""
+    source_dataset = load_fee_recommendation_dataset().copy()
+    if source_dataset.empty:
+        return [], False
+
+    selected_category = standardize_category(category or PREDICTION_DEFAULTS["category"])
+    selected_quota = standardize_quota(quota or PREDICTION_DEFAULTS["quota"])
+    selected_field = standardize_branch(predicted_field)
+    selected_college_type = _normalize_college_type(college_type)
+
+    if selected_category:
+        source_dataset = source_dataset[source_dataset["category"].astype(str).str.casefold() == selected_category.casefold()]
+    if selected_quota:
+        source_dataset = source_dataset[source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold()]
+    if selected_college_type:
+        source_dataset = source_dataset[source_dataset["college_type"].astype(str).str.casefold() == selected_college_type.casefold()]
+
+    if fee_min is not None:
+        source_dataset = source_dataset[source_dataset["fee_amount"] >= fee_min]
+    if fee_max is not None:
+        source_dataset = source_dataset[source_dataset["fee_amount"] <= fee_max]
+
+    lower_rank = source_dataset[["rank_floor", "rank_ceiling"]].min(axis=1)
+    upper_rank = source_dataset[["rank_floor", "rank_ceiling"]].max(axis=1)
+    windows = [500, 2000, 5000, 20000, 50000]
+    dataset = pd.DataFrame()
+    selected_window = 0
+    for window in windows:
+        local = source_dataset[(lower_rank <= (rank + window)) & (upper_rank >= (rank - window))].copy()
+        if len(local) >= 4:
+            dataset = local
+            selected_window = window
+            break
+    else:
+        dataset = source_dataset[(lower_rank <= (rank + windows[-1])) & (upper_rank >= (rank - windows[-1]))].copy()
+        selected_window = windows[-1]
+
+    if dataset.empty:
+        return [], False
+
+    matched_predicted_field = False
+    if selected_field:
+        exact_field_rows = dataset[
+            dataset["admission_field"].astype(str).str.casefold() == selected_field.casefold()
+        ].copy()
+        matched_predicted_field = not exact_field_rows.empty
+        if not exact_field_rows.empty:
+            dataset = pd.concat([exact_field_rows, dataset], ignore_index=True)
+            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name", "admission_field", "category", "quota", "college_type", "district"], keep="first")
+
+    dataset["rank_gap"] = (
+        dataset[["rank_floor", "rank_ceiling"]].max(axis=1) - rank
+    ).abs()
+    dataset["rank_window"] = selected_window
+    dataset = dataset.sort_values(["rank_gap", "fee_amount", "institute_name"], ascending=[True, True, True])
+
+    columns = [
+        "institute_name",
+        "course_name",
+        "admission_field",
+        "tuition_fee",
+        "fee_amount",
+        "college_type",
+        "district",
+        "city",
+        "boys_hostel",
+        "girls_hostel",
+        "official_website",
+        "academic_year",
+        "program_type",
+        "category",
+        "quota",
+        "first_rank",
+        "last_rank",
+        "rank_gap",
+        "rank_window",
+    ]
+    dataset = dataset[columns].head(max(1, int(limit)))
+    recommendations = dataset.to_dict(orient="records")
+    for row in recommendations:
+        row["official_website"] = str(row.get("official_website", "") or "").strip()
+    return recommendations, matched_predicted_field
+
+
+def _build_prediction_response(rank, category, quota, fee_min=None, fee_max=None, college_type=None, include_accuracy=False):
+    """Build the API response shared by predict and accuracy endpoints."""
+    model_bundle = load_model_bundle()
+    if not model_bundle:
+        return None, None
+
+    predicted_field = _predict_field(model_bundle, rank, category, quota)
+    eligible_institutes, matched_predicted_field = _recommend_eligible_institutes(
+        rank=rank,
+        category=category,
+        quota=quota,
+        predicted_field=predicted_field,
+        fee_min=fee_min,
+        fee_max=fee_max,
+        college_type=college_type,
+    )
+
+    response = {
+        "predicted_field": predicted_field,
+        "selected_rank": rank,
+        "selected_category": standardize_category(category or model_bundle["default_category"]),
+        "selected_quota": standardize_quota(quota or model_bundle["default_quota"]),
+        "fee_min": fee_min,
+        "fee_max": fee_max,
+        "college_type": _normalize_college_type(college_type),
+        "eligible_institutes": eligible_institutes,
+        "eligible_count": len(eligible_institutes),
+        "matched_predicted_field": matched_predicted_field,
+    }
+
+    if include_accuracy:
+        segment = _estimate_segment_accuracy(model_bundle, rank, category, quota)
+        response.update(
+            {
+                "estimated_input_accuracy": segment.get("estimated_accuracy"),
+                "similar_rows_used": segment.get("matched_rows", 0),
+                "rank_window": segment.get("window", 0),
+                "model_training_accuracy": model_bundle.get("training_accuracy"),
+                "evaluated_samples": model_bundle.get("total_samples", 0),
+            }
+        )
+
+    return response, model_bundle
 
 
 def _resolve_model_file():
@@ -273,23 +553,36 @@ def predict():
         rank = int(payload.get("rank"))
         category = str(payload.get("category", "")).strip() or None
         quota = str(payload.get("quota", "")).strip() or None
+        fee_min = _parse_optional_int(payload.get("fee_min"))
+        fee_max = _parse_optional_int(payload.get("fee_max"))
+        college_type = str(payload.get("college_type", "")).strip() or None
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
-    model_bundle = load_model_bundle()
-    if not model_bundle:
+    if fee_min is not None and fee_max is not None and fee_min > fee_max:
+        fee_min, fee_max = fee_max, fee_min
+
+    try:
+        response, model_bundle = _build_prediction_response(
+            rank=rank,
+            category=category,
+            quota=quota,
+            fee_min=fee_min,
+            fee_max=fee_max,
+            college_type=college_type,
+            include_accuracy=False,
+        )
+    except ValueError:
+        return jsonify({"error": "Category or quota is not recognized by the trained model."}), 400
+
+    if not response or not model_bundle:
         return jsonify(
             {
                 "error": "Trained model file was not found. Expected one of: model/model.pkl, model/trained_model.pkl, models/model.pkl, idel/model.pkl"
             }
         ), 500
 
-    try:
-        predicted_field = _predict_field(model_bundle, rank, category, quota)
-    except ValueError:
-        return jsonify({"error": "Category or quota is not recognized by the trained model."}), 400
-
-    return jsonify({"predicted_field": predicted_field})
+    return jsonify(response)
 
 
 @app.route("/predict/check", methods=["POST"])
@@ -301,31 +594,31 @@ def check_prediction_accuracy():
         rank = int(payload.get("rank"))
         category = str(payload.get("category", "")).strip() or None
         quota = str(payload.get("quota", "")).strip() or None
+        fee_min = _parse_optional_int(payload.get("fee_min"))
+        fee_max = _parse_optional_int(payload.get("fee_max"))
+        college_type = str(payload.get("college_type", "")).strip() or None
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
-    model_bundle = load_model_bundle()
-    if not model_bundle:
-        return jsonify({"error": "Trained model file was not found."}), 500
+    if fee_min is not None and fee_max is not None and fee_min > fee_max:
+        fee_min, fee_max = fee_max, fee_min
 
     try:
-        predicted_field = _predict_field(model_bundle, rank, category, quota)
+        response, model_bundle = _build_prediction_response(
+            rank=rank,
+            category=category,
+            quota=quota,
+            fee_min=fee_min,
+            fee_max=fee_max,
+            college_type=college_type,
+            include_accuracy=True,
+        )
     except ValueError:
         return jsonify({"error": "Category or quota is not recognized by the trained model."}), 400
 
-    segment = _estimate_segment_accuracy(model_bundle, rank, category, quota)
+    if not response or not model_bundle:
+        return jsonify({"error": "Trained model file was not found."}), 500
 
-    response = {
-        "predicted_field": predicted_field,
-        "selected_rank": rank,
-        "selected_category": standardize_category(category or model_bundle["default_category"]),
-        "selected_quota": standardize_quota(quota or model_bundle["default_quota"]),
-        "estimated_input_accuracy": segment.get("estimated_accuracy"),
-        "similar_rows_used": segment.get("matched_rows", 0),
-        "rank_window": segment.get("window", 0),
-        "model_training_accuracy": model_bundle.get("training_accuracy"),
-        "evaluated_samples": model_bundle.get("total_samples", 0),
-    }
     return jsonify(response)
 
 

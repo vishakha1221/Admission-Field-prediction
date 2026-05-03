@@ -1,27 +1,32 @@
 const form = document.getElementById('prediction-form');
 const result = document.getElementById('result');
-const accuracyResult = document.getElementById('accuracy-result');
-const checkAccuracyButton = document.getElementById('check-accuracy-btn');
-const filterForm = document.getElementById('filter-form');
-const citySelect = document.getElementById('filter-city');
-const branchSelect = document.getElementById('filter-branch');
-const instituteSelect = document.getElementById('filter-institute');
-const boysHostelSelect = document.getElementById('filter-boys-hostel');
-const girlsHostelSelect = document.getElementById('filter-girls-hostel');
-const filterResults = document.getElementById('filter-results');
-const prevPageButton = document.getElementById('prev-page');
-const nextPageButton = document.getElementById('next-page');
-const pageInfo = document.getElementById('page-info');
-const pageSizeSelect = document.getElementById('page-size-select');
 const predictionEmpty = document.getElementById('prediction-empty');
 const resultBadge = document.getElementById('result-badge');
-const accuracyProgressFill = document.getElementById('accuracy-progress-fill');
-const accuracyPercentage = document.getElementById('accuracy-percentage');
+const checkAccuracyButton = document.getElementById('check-accuracy-btn');
+const accuracyResult = document.getElementById('accuracy-result');
+
+const searchCitySelect = document.getElementById('search-city');
+const searchBranchSelect = document.getElementById('search-branch');
+const searchTypeSelect = document.getElementById('search-type');
+const searchBoysHostelSelect = document.getElementById('search-boys-hostel');
+const searchGirlsHostelSelect = document.getElementById('search-girls-hostel');
+const searchRecommendationsButton = document.getElementById('search-recommendations-btn');
+const recommendationResults = document.getElementById('recommendation-results');
+const recommendationCount = document.getElementById('recommendation-count');
+const recommendationNote = document.getElementById('recommendation-note');
+
+const categorySelect = document.getElementById('category');
+const quotaSelect = document.getElementById('quota');
+const citySelect = document.getElementById('filter-city');
+const branchSelect = document.getElementById('filter-branch');
+const boysHostelSelect = document.getElementById('filter-boys-hostel');
+const girlsHostelSelect = document.getElementById('filter-girls-hostel');
+const filterForm = document.getElementById('filter-form');
+const filterResults = document.getElementById('filter-results');
 
 const DEFAULT_PAGE_SIZE = '10';
-let currentPage = 1;
-let totalPages = 1;
-let currentPageSize = DEFAULT_PAGE_SIZE;
+let currentPredictionRows = [];
+let currentPredictionData = null;
 let activeFilters = {};
 let isFetchingPage = false;
 let lastFilterKey = '';
@@ -38,79 +43,170 @@ function setPredictionState(message, isSuccess = false) {
   }
 }
 
-function setAccuracyProgress(percentValue) {
-  const clamped = Number.isFinite(percentValue)
-    ? Math.min(Math.max(percentValue, 0), 100)
-    : 0;
-
-  if (accuracyProgressFill) {
-    accuracyProgressFill.style.width = `${clamped}%`;
-  }
-  if (accuracyPercentage) {
-    accuracyPercentage.textContent = `${clamped.toFixed(1)}%`;
-  }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"]|'/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
 }
 
-function getFilterCacheKey(filters) {
-  return JSON.stringify(Object.keys(filters).sort().reduce((acc, key) => {
-    acc[key] = filters[key];
-    return acc;
-  }, {}));
-}
-
-function setPaginationLoadingState(loading) {
-  isFetchingPage = loading;
-  const isAllMode = currentPageSize === 'all';
-  prevPageButton.disabled = loading || isAllMode || currentPage <= 1;
-  nextPageButton.disabled = loading || isAllMode || currentPage >= totalPages;
-  if (loading) {
-    pageInfo.textContent = isAllMode ? 'Loading all results...' : `Loading page ${currentPage}...`;
-  } else {
-    pageInfo.textContent = isAllMode
-      ? `Showing all results (${totalPages === 1 ? 'all available rows' : 'filtered rows'})`
-      : `Page ${currentPage} of ${totalPages}`;
+function getOptionalIntegerValue(element) {
+  if (!element) {
+    return null;
   }
+
+  const value = String(element.value ?? '').trim();
+  if (!value) {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
 }
 
-function updatePaginationControls() {
-  const isAllMode = currentPageSize === 'all';
-  prevPageButton.disabled = isFetchingPage || isAllMode || currentPage <= 1;
-  nextPageButton.disabled = isFetchingPage || isAllMode || currentPage >= totalPages;
-  if (!isFetchingPage) {
-    pageInfo.textContent = isAllMode
-      ? 'Showing all results'
-      : `Page ${currentPage} of ${totalPages}`;
+function setRecommendationSummary(count, note) {
+  if (recommendationCount) {
+    recommendationCount.textContent = `${count} match${count === 1 ? '' : 'es'}`;
+  }
+  if (recommendationNote) {
+    recommendationNote.textContent = note;
   }
 }
 
-async function prefetchAdjacentPages() {
-  const pagesToPrefetch = [currentPage + 1, currentPage - 1].filter(
-    (page) => page >= 1 && page <= totalPages
+function renderRecommendationRows(rows) {
+  if (!recommendationResults) {
+    return;
+  }
+
+  if (!rows.length) {
+    recommendationResults.innerHTML = '<tr><td colspan="5">No verified institutes matched the current search filters.</td></tr>';
+    return;
+  }
+
+  recommendationResults.innerHTML = rows.map((row, index) => {
+    const websiteLink = row.official_website
+      ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
+      : '<span class="muted-link">Not listed</span>';
+    const instituteBranch = [row.institute_name, row.course_name || row.admission_field].filter(Boolean).join(' - ');
+
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(instituteBranch)}</td>
+        <td>${escapeHtml(row.college_type)}</td>
+        <td>${escapeHtml(row.tuition_fee)}</td>
+        <td>${websiteLink}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function collectPredictionPayload() {
+  return {
+    rank: document.getElementById('rank').value,
+    category: categorySelect.value || null,
+    quota: quotaSelect.value || null,
+  };
+}
+
+function normalizeText(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function applyRecommendationFilters() {
+  const filters = {
+    city: searchCitySelect ? searchCitySelect.value.trim() : '',
+    branch: searchBranchSelect ? searchBranchSelect.value.trim() : '',
+    collegeType: searchTypeSelect ? searchTypeSelect.value.trim() : '',
+    boysHostel: searchBoysHostelSelect ? searchBoysHostelSelect.value.trim() : '',
+    girlsHostel: searchGirlsHostelSelect ? searchGirlsHostelSelect.value.trim() : '',
+  };
+
+  let rows = [...currentPredictionRows];
+
+  if (filters.city) {
+    rows = rows.filter((row) => normalizeText(row.city) === normalizeText(filters.city));
+  }
+  if (filters.branch) {
+    rows = rows.filter((row) => normalizeText(row.course_name || row.admission_field) === normalizeText(filters.branch));
+  }
+  if (filters.collegeType) {
+    rows = rows.filter((row) => normalizeText(row.college_type) === normalizeText(filters.collegeType));
+  }
+  if (filters.boysHostel) {
+    rows = rows.filter((row) => normalizeText(row.boys_hostel) === normalizeText(filters.boysHostel));
+  }
+  if (filters.girlsHostel) {
+    rows = rows.filter((row) => normalizeText(row.girls_hostel) === normalizeText(filters.girlsHostel));
+  }
+
+  renderRecommendationRows(rows);
+
+  if (!currentPredictionData) {
+    setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
+    return;
+  }
+
+  const predictedField = currentPredictionData.predicted_field || 'the selected field';
+  const filterFragments = [];
+  if (filters.city) filterFragments.push(`city ${filters.city}`);
+  if (filters.branch) filterFragments.push(`branch ${filters.branch}`);
+  if (filters.collegeType) filterFragments.push(`type ${filters.collegeType}`);
+  if (filters.boysHostel) filterFragments.push(`boys hostel ${filters.boysHostel}`);
+  if (filters.girlsHostel) filterFragments.push(`girls hostel ${filters.girlsHostel}`);
+
+  const filterText = filterFragments.length ? ` after filtering by ${filterFragments.join(', ')}` : '';
+  const baseText = currentPredictionData.matched_predicted_field === false
+    ? `The predicted field ${predictedField} had no direct fee-dataset match, so these are the nearest verified options.`
+    : `These are verified institutes for ${predictedField}.`;
+
+  setRecommendationSummary(
+    rows.length,
+    `${rows.length} verified institute${rows.length === 1 ? '' : 's'} matched${filterText}. ${baseText}`
   );
+}
 
-  for (const page of pagesToPrefetch) {
-    const cacheKey = `${lastFilterKey}|${page}`;
-    if (institutePageCache.has(cacheKey)) {
-      continue;
-    }
+function loadSelectOptions(selectElement, options, placeholder) {
+  if (!selectElement) {
+    return;
+  }
 
-    const params = new URLSearchParams();
-    Object.entries(activeFilters).forEach(([key, value]) => {
-      params.set(key, value);
-    });
-    params.set('limit', currentPageSize);
-    params.set('page', String(page));
+  selectElement.innerHTML = `<option value="">${placeholder}</option>`;
+  [...new Set(options)].forEach((optionValue) => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    selectElement.appendChild(option);
+  });
+}
 
-    try {
-      const response = await fetch(`/api/filter?${params.toString()}`);
-      if (!response.ok) {
-        continue;
-      }
-      const data = await response.json();
-      institutePageCache.set(cacheKey, data);
-    } catch (error) {
-      continue;
-    }
+function loadStaticSearchOptions() {
+  if (searchTypeSelect) {
+    searchTypeSelect.innerHTML = `
+      <option value="">All Types</option>
+      <option value="Govt">Govt</option>
+      <option value="GIA">GIA</option>
+      <option value="SFI">SFI</option>
+    `;
+  }
+
+  if (searchBoysHostelSelect) {
+    searchBoysHostelSelect.innerHTML = `
+      <option value="">All</option>
+      <option value="Yes">Yes</option>
+      <option value="No">No</option>
+    `;
+  }
+
+  if (searchGirlsHostelSelect) {
+    searchGirlsHostelSelect.innerHTML = `
+      <option value="">All</option>
+      <option value="Yes">Yes</option>
+      <option value="No">No</option>
+    `;
   }
 }
 
@@ -119,166 +215,35 @@ async function loadFilterOptions() {
   const data = await response.json();
 
   if (Array.isArray(data.categories)) {
-    const categorySelect = document.getElementById('category');
-    categorySelect.innerHTML = '<option value="">Auto</option>';
-    [...new Set(data.categories)].forEach((category) => {
-      const option = document.createElement('option');
-      option.value = category;
-      option.textContent = category;
-      categorySelect.appendChild(option);
-    });
+    loadSelectOptions(categorySelect, data.categories, 'Auto');
   }
 
   if (Array.isArray(data.quotas)) {
-    const quotaSelect = document.getElementById('quota');
-    quotaSelect.innerHTML = '<option value="">Auto</option>';
-    [...new Set(data.quotas)].forEach((quota) => {
-      const option = document.createElement('option');
-      option.value = quota;
-      option.textContent = quota;
-      quotaSelect.appendChild(option);
-    });
+    loadSelectOptions(quotaSelect, data.quotas, 'Auto');
   }
 
-  boysHostelSelect.innerHTML = `
-    <option value="">All</option>
-    <option value="Yes">Yes</option>
-    <option value="No">No</option>
-  `;
-
-  girlsHostelSelect.innerHTML = `
-    <option value="">All</option>
-    <option value="Yes">Yes</option>
-    <option value="No">No</option>
-  `;
-
-  data.cities.forEach((city) => {
-    const option = document.createElement('option');
-    option.value = city;
-    option.textContent = city;
-    citySelect.appendChild(option);
-  });
-
-  data.branches.forEach((branch) => {
-    const option = document.createElement('option');
-    option.value = branch;
-    option.textContent = branch;
-    branchSelect.appendChild(option);
-  });
-
-  data.institutes.forEach((institute) => {
-    const option = document.createElement('option');
-    option.value = institute;
-    option.textContent = institute;
-    instituteSelect.appendChild(option);
-  });
-}
-
-function renderResults(rows, page = 1, pageSize = 1) {
-  if (!rows.length) {
-    filterResults.innerHTML = '<tr><td colspan="4">No matching institutes found.</td></tr>';
-    return;
+  if (Array.isArray(data.cities)) {
+    loadSelectOptions(searchCitySelect, data.cities, 'All Cities');
   }
 
-  const startNo = (page - 1) * pageSize;
-  filterResults.innerHTML = rows
-    .map((row, index) => `
-      <tr>
-        <td>${startNo + index + 1}</td>
-        <td>${row.institute_name ?? ''}</td>
-        <td>${row.city ?? ''}</td>
-        <td>${row.official_website ? `<a href="${row.official_website}" target="_blank" rel="noreferrer">Visit</a>` : ''}</td>
-      </tr>
-    `)
-    .join('');
-}
-
-function collectFilters() {
-  const branch = branchSelect.value;
-  const city = citySelect.value;
-  const institute = instituteSelect.value;
-  const boysHostel = boysHostelSelect.value;
-  const girlsHostel = girlsHostelSelect.value;
-
-  const filters = {};
-  if (city) filters.city = city;
-  if (branch) filters.branch = branch;
-  if (institute) filters.institute_name = institute;
-  if (boysHostel) filters.boys_hostel = boysHostel;
-  if (girlsHostel) filters.girls_hostel = girlsHostel;
-  return filters;
-}
-
-async function fetchInstitutePage(page = 1) {
-  const filterKey = getFilterCacheKey(activeFilters);
-  const combinedKey = `${filterKey}|size:${currentPageSize}`;
-  if (combinedKey !== lastFilterKey) {
-    institutePageCache.clear();
-    lastFilterKey = combinedKey;
+  if (Array.isArray(data.branches)) {
+    loadSelectOptions(searchBranchSelect, data.branches, 'All Branches');
   }
 
-  const cacheKey = `${combinedKey}|${page}`;
-  const cached = institutePageCache.get(cacheKey);
-  if (cached) {
-    currentPage = Number(cached.page || page);
-    totalPages = Number(cached.total_pages || 1);
-    currentPageSize = String(cached.show_all ? 'all' : cached.page_size || currentPageSize);
-    pageSizeSelect.value = currentPageSize;
-    renderResults(cached.results || [], currentPage, cached.show_all ? Math.max((cached.results || []).length, 1) : Number(cached.page_size || 10));
-    updatePaginationControls();
-    void prefetchAdjacentPages();
-    return;
-  }
-
-  setPaginationLoadingState(true);
-  const params = new URLSearchParams();
-  Object.entries(activeFilters).forEach(([key, value]) => {
-    params.set(key, value);
-  });
-  params.set('limit', currentPageSize);
-  params.set('page', String(page));
-
-  try {
-    const response = await fetch(`/api/filter?${params.toString()}`);
-    const data = await response.json();
-
-    currentPage = Number(data.page || page);
-    totalPages = Number(data.total_pages || 1);
-    currentPageSize = String(data.show_all ? 'all' : data.page_size || currentPageSize);
-    pageSizeSelect.value = currentPageSize;
-    institutePageCache.set(`${combinedKey}|${currentPage}`, data);
-
-    renderResults(data.results || [], currentPage, data.show_all ? Math.max((data.results || []).length, 1) : Number(data.page_size || 10));
-    updatePaginationControls();
-    void prefetchAdjacentPages();
-  } catch (error) {
-    filterResults.innerHTML = '<tr><td colspan="4">Unable to fetch institutes right now.</td></tr>';
-    pageInfo.textContent = 'Load failed';
-  } finally {
-    setPaginationLoadingState(false);
-    updatePaginationControls();
-  }
-}
-
-async function searchInstitutes(event) {
-  event.preventDefault();
-  activeFilters = collectFilters();
-  institutePageCache.clear();
-  currentPage = 1;
-  await fetchInstitutePage(currentPage);
+  loadStaticSearchOptions();
+  setPredictionState('No prediction yet.', false);
+  setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
+  renderRecommendationRows([]);
 }
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
-  const payload = {
-    rank: document.getElementById('rank').value,
-    category: document.getElementById('category').value || null,
-    quota: document.getElementById('quota').value || null,
-  };
+  const payload = collectPredictionPayload();
 
   try {
     setPredictionState('Predicting...', false);
+    setRecommendationSummary(0, 'Fetching verified institute matches...');
 
     const response = await fetch('/predict', {
       method: 'POST',
@@ -292,91 +257,78 @@ form.addEventListener('submit', async (event) => {
 
     if (!response.ok) {
       setPredictionState(data.error || 'Prediction failed.', false);
+      currentPredictionRows = [];
+      currentPredictionData = null;
+      renderRecommendationRows([]);
+      setRecommendationSummary(0, data.error || 'No verified recommendations available.');
       return;
     }
 
+    currentPredictionRows = Array.isArray(data.eligible_institutes) ? data.eligible_institutes : [];
+    currentPredictionData = data;
     setPredictionState(data.predicted_field || 'Prediction completed.', true);
+    applyRecommendationFilters();
   } catch (error) {
     setPredictionState('Unable to connect to the backend.', false);
+    currentPredictionRows = [];
+    currentPredictionData = null;
+    renderRecommendationRows([]);
+    setRecommendationSummary(0, 'Unable to load verified institute matches.');
   }
 });
 
-checkAccuracyButton.addEventListener('click', async () => {
-  const payload = {
-    rank: document.getElementById('rank').value,
-    category: document.getElementById('category').value || null,
-    quota: document.getElementById('quota').value || null,
-  };
+if (checkAccuracyButton) {
+  checkAccuracyButton.addEventListener('click', async () => {
+    const payload = collectPredictionPayload();
 
-  try {
-    accuracyResult.textContent = 'Checking accuracy...';
-    setAccuracyProgress(0);
+    try {
+      if (accuracyResult) {
+        accuracyResult.textContent = 'Checking accuracy...';
+      }
 
-    const response = await fetch('/predict/check', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+      const response = await fetch('/predict/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      accuracyResult.textContent = data.error || 'Accuracy check failed.';
-      setAccuracyProgress(0);
-      return;
+      const data = await response.json();
+      if (!response.ok) {
+        if (accuracyResult) {
+          accuracyResult.textContent = data.error || 'Accuracy check failed.';
+        }
+        return;
+      }
+
+      const estimatedInputAccuracy = typeof data.estimated_input_accuracy === 'number'
+        ? `${(data.estimated_input_accuracy * 100).toFixed(2)}%`
+        : 'N/A';
+      const modelAccuracy = typeof data.model_training_accuracy === 'number'
+        ? `${(data.model_training_accuracy * 100).toFixed(2)}%`
+        : 'N/A';
+
+      if (accuracyResult) {
+        accuracyResult.textContent = `Predicted: ${data.predicted_field} | Estimated Input Accuracy: ${estimatedInputAccuracy} | Model Accuracy: ${modelAccuracy}`;
+      }
+    } catch (error) {
+      if (accuracyResult) {
+        accuracyResult.textContent = 'Unable to connect to the backend.';
+      }
     }
-
-    const estimatedInputAccuracy = typeof data.estimated_input_accuracy === 'number'
-      ? `${(data.estimated_input_accuracy * 100).toFixed(2)}%`
-      : 'N/A';
-    const estimatedInputAccuracyValue = typeof data.estimated_input_accuracy === 'number'
-      ? data.estimated_input_accuracy * 100
-      : 0;
-    const modelAccuracy = typeof data.model_training_accuracy === 'number'
-      ? `${(data.model_training_accuracy * 100).toFixed(2)}%`
-      : 'N/A';
-
-    accuracyResult.textContent =
-      `Predicted: ${data.predicted_field} | Estimated Input Accuracy: ${estimatedInputAccuracy} (similar rows: ${data.similar_rows_used}, rank window: +/-${data.rank_window}) | Model Accuracy: ${modelAccuracy} (${data.evaluated_samples} samples)`;
-    setAccuracyProgress(estimatedInputAccuracyValue);
-  } catch (error) {
-    accuracyResult.textContent = 'Unable to connect to the backend.';
-    setAccuracyProgress(0);
-  }
-});
-
-filterForm.addEventListener('submit', searchInstitutes);
-
-pageSizeSelect.addEventListener('change', async () => {
-  currentPageSize = pageSizeSelect.value;
-  institutePageCache.clear();
-  currentPage = 1;
-  await fetchInstitutePage(1);
-});
-
-prevPageButton.addEventListener('click', async () => {
-  if (!isFetchingPage && currentPage > 1) {
-    await fetchInstitutePage(currentPage - 1);
-  }
-});
-
-nextPageButton.addEventListener('click', async () => {
-  if (!isFetchingPage && currentPage < totalPages) {
-    await fetchInstitutePage(currentPage + 1);
-  }
-});
-
-loadFilterOptions()
-  .then(() => {
-    setPredictionState('No prediction yet.', false);
-    setAccuracyProgress(0);
-    activeFilters = collectFilters();
-    currentPageSize = pageSizeSelect.value || DEFAULT_PAGE_SIZE;
-    return fetchInstitutePage(1);
-  })
-  .catch(() => {
-    citySelect.innerHTML = '<option value="">Unable to load cities</option>';
-    branchSelect.innerHTML = '<option value="">Unable to load branches</option>';
-    instituteSelect.innerHTML = '<option value="">Unable to load institutes</option>';
   });
+}
+
+if (searchRecommendationsButton) {
+  searchRecommendationsButton.addEventListener('click', () => {
+    applyRecommendationFilters();
+  });
+}
+
+loadFilterOptions().catch(() => {
+  if (categorySelect) categorySelect.innerHTML = '<option value="">Unable to load categories</option>';
+  if (quotaSelect) quotaSelect.innerHTML = '<option value="">Unable to load quotas</option>';
+  if (searchCitySelect) searchCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
+  if (searchBranchSelect) searchBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
+});
