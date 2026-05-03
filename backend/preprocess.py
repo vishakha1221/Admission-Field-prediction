@@ -128,6 +128,8 @@ INSTITUTE_STANDARD_MAP = {
 	"government engineering college bhavnagar": "Government Engineering College, Bhavnagar",
 	"government engineering college, bhavnagar": "Government Engineering College, Bhavnagar",
 	"government engg college bhavnagar": "Government Engineering College, Bhavnagar",
+	"parul institute of engineering technology waghodia vadodara": "Parul Institute of Engineering & Technology, Waghodia, Vadodara",
+	"parul institute of technology waghodia vadodara": "Parul Institute of Engineering & Technology, Waghodia, Vadodara",
 	"ssec bhavnagar": "Shantilal Shah Engineering College, Bhavnagar",
 	"shantilal shah engineering college bhavnagar": "Shantilal Shah Engineering College, Bhavnagar",
 	"shantilal shah engineering college, bhavnagar": "Shantilal Shah Engineering College, Bhavnagar",

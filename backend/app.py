@@ -184,9 +184,9 @@ def load_fee_recommendation_dataset():
         ["academic_year_sort", "fee_amount", "rank_ceiling", "rank_floor", "institute_name"],
         ascending=[False, True, True, True, True],
     )
-    # Remove duplicates: keep one row per college-branch combination with lowest fee and most recent year
+    # Remove duplicates: keep one row per college-branch combination (ignore category/quota)
     dataset = dataset.drop_duplicates(
-        subset=["institute_key", "course_name", "category", "quota"],
+        subset=["institute_key", "course_name"],
         keep="first",
     )
     return dataset
@@ -259,20 +259,48 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
     if fee_max is not None:
         source_dataset = source_dataset[source_dataset["fee_amount"] <= fee_max]
 
-    lower_rank = source_dataset[["rank_floor", "rank_ceiling"]].min(axis=1)
-    upper_rank = source_dataset[["rank_floor", "rank_ceiling"]].max(axis=1)
+    candidate_datasets = []
+    if selected_category and selected_quota:
+        candidate_datasets.append(
+            source_dataset[
+                (source_dataset["category"].astype(str).str.casefold() == selected_category.casefold())
+                & (source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold())
+            ].copy()
+        )
+    if selected_category:
+        candidate_datasets.append(
+            source_dataset[source_dataset["category"].astype(str).str.casefold() == selected_category.casefold()].copy()
+        )
+    if selected_quota:
+        candidate_datasets.append(
+            source_dataset[source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold()].copy()
+        )
+    candidate_datasets.append(source_dataset.copy())
+
     windows = [500, 2000, 5000, 20000, 50000]
     dataset = pd.DataFrame()
     selected_window = 0
-    for window in windows:
-        local = source_dataset[(lower_rank <= (rank + window)) & (upper_rank >= (rank - window))].copy()
-        if len(local) >= 4:
-            dataset = local
-            selected_window = window
+    for candidate_source in candidate_datasets:
+        if candidate_source.empty:
+            continue
+
+        lower_rank = candidate_source[["rank_floor", "rank_ceiling"]].min(axis=1)
+        upper_rank = candidate_source[["rank_floor", "rank_ceiling"]].max(axis=1)
+
+        for window in windows:
+            local = candidate_source[(lower_rank <= (rank + window)) & (upper_rank >= (rank - window))].copy()
+            if len(local) >= 4:
+                dataset = local
+                selected_window = window
+                break
+        else:
+            local = candidate_source[(lower_rank <= (rank + windows[-1])) & (upper_rank >= (rank - windows[-1]))].copy()
+            if not local.empty:
+                dataset = local
+                selected_window = windows[-1]
+
+        if not dataset.empty:
             break
-    else:
-        dataset = source_dataset[(lower_rank <= (rank + windows[-1])) & (upper_rank >= (rank - windows[-1]))].copy()
-        selected_window = windows[-1]
 
     if dataset.empty:
         return [], False
@@ -285,7 +313,8 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         matched_predicted_field = not exact_field_rows.empty
         if not exact_field_rows.empty:
             dataset = pd.concat([exact_field_rows, dataset], ignore_index=True)
-            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name", "category", "quota"], keep="first")
+            # After preferring exact field rows, dedupe by institute+branch so we don't repeat the same branch
+            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name"], keep="first")
 
     dataset["rank_gap"] = (
         dataset[["rank_floor", "rank_ceiling"]].max(axis=1) - rank
@@ -710,6 +739,7 @@ def search_institutes():
     institute_name = request.args.get("institute_name", "").strip()
     branch = request.args.get("branch", "").strip()
     city = request.args.get("city", "").strip()
+    college_type = request.args.get("college_type", "").strip()
     limit = request.args.get("limit", "100")
 
     fee_dataset = load_fee_recommendation_dataset().copy()
@@ -731,6 +761,11 @@ def search_institutes():
     if city:
         fee_dataset = fee_dataset[
             fee_dataset["city"].astype(str).str.strip().str.casefold() == city.casefold()
+        ]
+    
+    if college_type:
+        fee_dataset = fee_dataset[
+            fee_dataset["college_type"].astype(str).str.strip().str.casefold() == college_type.casefold()
         ]
     
     # Limit results

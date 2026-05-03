@@ -84,8 +84,6 @@
                 <p class="empty-illustration" aria-hidden="true">ðŸŽ“</p>
                 <p>No prediction yet. Submit your details to get your best-fit admission field.</p>
               </div>
-              <p id="result" class="result-text">No prediction yet.</p>
-              <span id="result-badge" class="result-badge">Awaiting Input</span>
               <div class="accuracy-controls">
                 <button type="button" id="check-accuracy-btn" class="btn btn-secondary">Check Accuracy</button>
               </div>
@@ -185,9 +183,14 @@
 
         <form id="institute-search-form" class="institute-search-form">
           <label>
-            Institute Name
+            Institute Type
             <div class="input-wrap">
-              <input type="text" id="search-institute-name" placeholder="Enter college name">
+              <select id="search-institute-type">
+                <option value="">All Types</option>
+                <option value="Govt">Govt</option>
+                <option value="GIA">GIA</option>
+                <option value="SFI">SFI</option>
+              </select>
             </div>
           </label>
 

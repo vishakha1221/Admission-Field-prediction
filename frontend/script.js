@@ -33,7 +33,7 @@ let lastFilterKey = '';
 const institutePageCache = new Map();
 
 function setPredictionState(message, isSuccess = false) {
-  result.textContent = message;
+  if (result) result.textContent = message;
   if (predictionEmpty) {
     predictionEmpty.style.display = isSuccess ? 'none' : 'block';
   }
@@ -389,7 +389,7 @@ if (searchRecommendationsButton) {
 
 // Optional search form for other colleges
 const searchInstituteForm = document.getElementById('institute-search-form');
-const searchInstituteNameInput = document.getElementById('search-institute-name');
+const searchInstituteTypeSelect = document.getElementById('search-institute-type');
 const searchOtherBranchSelect = document.getElementById('search-other-branch');
 const searchOtherCitySelect = document.getElementById('search-other-city');
 const searchOtherInstitutesButton = document.getElementById('search-other-institutes-btn');
@@ -440,11 +440,11 @@ async function initializeSearchForm() {
 
 if (searchOtherInstitutesButton) {
   searchOtherInstitutesButton.addEventListener('click', async () => {
-    const instituteName = searchInstituteNameInput ? searchInstituteNameInput.value.trim() : '';
+    const instituteType = searchInstituteTypeSelect ? searchInstituteTypeSelect.value.trim() : '';
     const branchFilter = searchOtherBranchSelect ? searchOtherBranchSelect.value.trim() : '';
     const cityFilter = searchOtherCitySelect ? searchOtherCitySelect.value.trim() : '';
 
-    if (!instituteName && !branchFilter && !cityFilter) {
+    if (!instituteType && !branchFilter && !cityFilter) {
       if (otherSearchCount) {
         otherSearchCount.textContent = '0 matches';
       }
@@ -458,7 +458,7 @@ if (searchOtherInstitutesButton) {
       }
 
       const queryParams = new URLSearchParams();
-      if (instituteName) queryParams.append('institute_name', instituteName);
+      if (instituteType) queryParams.append('college_type', instituteType);
       if (branchFilter) queryParams.append('branch', branchFilter);
       if (cityFilter) queryParams.append('city', cityFilter);
 
