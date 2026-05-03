@@ -204,6 +204,25 @@ def _normalize_college_type(value):
     return text
 
 
+def _json_safe_value(value):
+    """Convert pandas/NumPy missing values to None for JSON serialization."""
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def _json_safe_records(dataframe):
+    """Convert a dataframe into JSON-safe record dictionaries."""
+    records = dataframe.to_dict(orient="records")
+    for record in records:
+        for key, value in list(record.items()):
+            record[key] = _json_safe_value(value)
+    return records
+
+
 def _parse_optional_int(value):
     """Convert a numeric form value to an int if possible."""
     if value is None:
@@ -300,7 +319,8 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         dataset = dataset[columns].head(max(1, int(limit)))
     else:
         dataset = dataset[columns]
-    recommendations = dataset.to_dict(orient="records")
+    
+    recommendations = _json_safe_records(dataset)
     for row in recommendations:
         row["official_website"] = str(row.get("official_website", "") or "").strip()
     return recommendations, matched_predicted_field
@@ -556,11 +576,14 @@ def predict():
 
     try:
         rank = int(payload.get("rank"))
-        category = str(payload.get("category", "")).strip() or None
-        quota = str(payload.get("quota", "")).strip() or None
+        category = payload.get("category")
+        category = str(category).strip() or None if category is not None else None
+        quota = payload.get("quota")
+        quota = str(quota).strip() or None if quota is not None else None
         fee_min = _parse_optional_int(payload.get("fee_min"))
         fee_max = _parse_optional_int(payload.get("fee_max"))
-        college_type = str(payload.get("college_type", "")).strip() or None
+        college_type = payload.get("college_type")
+        college_type = str(college_type).strip() or None if college_type is not None else None
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
@@ -597,11 +620,14 @@ def check_prediction_accuracy():
 
     try:
         rank = int(payload.get("rank"))
-        category = str(payload.get("category", "")).strip() or None
-        quota = str(payload.get("quota", "")).strip() or None
+        category = payload.get("category")
+        category = str(category).strip() or None if category is not None else None
+        quota = payload.get("quota")
+        quota = str(quota).strip() or None if quota is not None else None
         fee_min = _parse_optional_int(payload.get("fee_min"))
         fee_max = _parse_optional_int(payload.get("fee_max"))
-        college_type = str(payload.get("college_type", "")).strip() or None
+        college_type = payload.get("college_type")
+        college_type = str(college_type).strip() or None if college_type is not None else None
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
@@ -714,9 +740,11 @@ def search_institutes():
         limit_value = 100
     
     limit_value = max(1, min(limit_value, 500))
-    results = fee_dataset[
-        ["institute_name", "course_name", "admission_field", "college_type", "city", "official_website", "tuition_fee"]
-    ].head(limit_value).to_dict(orient="records")
+    results = _json_safe_records(
+        fee_dataset[
+            ["institute_name", "course_name", "admission_field", "college_type", "city", "official_website", "tuition_fee"]
+        ].head(limit_value)
+    )
     
     return jsonify({"results": results})
 
@@ -831,7 +859,7 @@ def filter_institutes():
 
     return jsonify(
         {
-            "results": filtered.to_dict(orient="records"),
+            "results": _json_safe_records(filtered),
             "page": page_value,
             "page_size": limit_value,
             "show_all": show_all,
@@ -855,4 +883,17 @@ def _unique_values(dataframe, column_name):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Preload data on startup to warm up caches
+    print("Loading data files...")
+    try:
+        load_institute_master_dataset()
+        load_fee_recommendation_dataset()
+        load_institute_search_dataset()
+        load_prediction_dataset()
+        load_model_bundle()
+        print("✓ Data loaded successfully!")
+    except Exception as e:
+        print(f"Warning: Could not preload data: {e}")
+    
+    print("Starting Flask server...")
+    app.run(debug=False, host="127.0.0.1", port=5000)

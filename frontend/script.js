@@ -212,29 +212,41 @@ function loadStaticSearchOptions() {
 }
 
 async function loadFilterOptions() {
-  const response = await fetch('/api/options');
-  const data = await response.json();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+    
+    const response = await fetch('/api/options', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    const data = await response.json();
 
-  if (Array.isArray(data.categories)) {
-    loadSelectOptions(categorySelect, data.categories, 'Auto');
+    if (Array.isArray(data.categories)) {
+      loadSelectOptions(categorySelect, data.categories, 'Auto');
+    }
+
+    if (Array.isArray(data.quotas)) {
+      loadSelectOptions(quotaSelect, data.quotas, 'Auto');
+    }
+
+    if (Array.isArray(data.cities)) {
+      loadSelectOptions(searchCitySelect, data.cities, 'All Cities');
+    }
+
+    if (Array.isArray(data.branches)) {
+      loadSelectOptions(searchBranchSelect, data.branches, 'All Branches');
+    }
+
+    loadStaticSearchOptions();
+    setPredictionState('No prediction yet.', false);
+    setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
+    renderRecommendationRows([]);
+  } catch (error) {
+    console.error('Error loading filter options:', error);
+    if (categorySelect) categorySelect.innerHTML = '<option value="">Unable to load categories</option>';
+    if (quotaSelect) quotaSelect.innerHTML = '<option value="">Unable to load quotas</option>';
+    if (searchCitySelect) searchCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
+    if (searchBranchSelect) searchBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
   }
-
-  if (Array.isArray(data.quotas)) {
-    loadSelectOptions(quotaSelect, data.quotas, 'Auto');
-  }
-
-  if (Array.isArray(data.cities)) {
-    loadSelectOptions(searchCitySelect, data.cities, 'All Cities');
-  }
-
-  if (Array.isArray(data.branches)) {
-    loadSelectOptions(searchBranchSelect, data.branches, 'All Branches');
-  }
-
-  loadStaticSearchOptions();
-  setPredictionState('No prediction yet.', false);
-  setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
-  renderRecommendationRows([]);
 }
 
 form.addEventListener('submit', async (event) => {
@@ -246,14 +258,19 @@ form.addEventListener('submit', async (event) => {
     setPredictionState('Predicting...', false);
     setRecommendationSummary(0, 'Fetching verified institute matches...');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
     const response = await fetch('/predict', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
     const data = await response.json();
 
     if (!response.ok) {
@@ -270,6 +287,7 @@ form.addEventListener('submit', async (event) => {
     setPredictionState(data.predicted_field || 'Prediction completed.', true);
     applyRecommendationFilters();
   } catch (error) {
+    console.error('Prediction error:', error);
     setPredictionState('Unable to connect to the backend.', false);
     currentPredictionRows = [];
     currentPredictionData = null;
@@ -287,14 +305,19 @@ if (checkAccuracyButton) {
         accuracyResult.textContent = 'Checking accuracy...';
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
       const response = await fetch('/predict/check', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
       if (!response.ok) {
         if (accuracyResult) {
@@ -350,6 +373,7 @@ if (checkAccuracyButton) {
         accuracyResult.textContent = `✓ Accuracy checked for ${data.predicted_field}`;
       }
     } catch (error) {
+      console.error('Accuracy check error:', error);
       if (accuracyResult) {
         accuracyResult.textContent = 'Unable to connect to the backend.';
       }
@@ -438,7 +462,11 @@ if (searchOtherInstitutesButton) {
       if (branchFilter) queryParams.append('branch', branchFilter);
       if (cityFilter) queryParams.append('city', cityFilter);
 
-      const response = await fetch(`/api/search-institutes?${queryParams.toString()}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+      const response = await fetch(`/api/search-institutes?${queryParams.toString()}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!response.ok) {
