@@ -82,7 +82,7 @@ function renderRecommendationRows(rows) {
   }
 
   if (!rows.length) {
-    recommendationResults.innerHTML = '<tr><td colspan="5">No verified institutes matched the current search filters.</td></tr>';
+    recommendationResults.innerHTML = '<tr><td colspan="6">No verified institutes matched the current search filters.</td></tr>';
     return;
   }
 
@@ -90,12 +90,13 @@ function renderRecommendationRows(rows) {
     const websiteLink = row.official_website
       ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
       : '<span class="muted-link">Not listed</span>';
-    const instituteBranch = [row.institute_name, row.course_name || row.admission_field].filter(Boolean).join(' - ');
+    const branch = row.course_name || row.admission_field || '-';
 
     return `
       <tr>
         <td>${index + 1}</td>
-        <td>${escapeHtml(instituteBranch)}</td>
+        <td>${escapeHtml(row.institute_name)}</td>
+        <td>${escapeHtml(branch)}</td>
         <td>${escapeHtml(row.college_type)}</td>
         <td>${escapeHtml(row.tuition_fee)}</td>
         <td>${websiteLink}</td>
@@ -376,7 +377,7 @@ function renderOtherSearchResults(rows) {
   if (!otherSearchResultsTbody) return;
 
   if (!rows || !rows.length) {
-    otherSearchResultsTbody.innerHTML = '<tr><td colspan="5">No institutes found matching your search criteria.</td></tr>';
+    otherSearchResultsTbody.innerHTML = '<tr><td colspan="6">No institutes found matching your search criteria.</td></tr>';
     return;
   }
 
@@ -384,12 +385,13 @@ function renderOtherSearchResults(rows) {
     const websiteLink = row.official_website
       ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
       : '<span class="muted-link">Not listed</span>';
-    const instituteBranch = [row.institute_name, row.course_name || row.admission_field].filter(Boolean).join(' - ');
+    const branch = row.course_name || row.admission_field || '-';
 
     return `
       <tr>
         <td>${index + 1}</td>
-        <td>${escapeHtml(instituteBranch)}</td>
+        <td>${escapeHtml(row.institute_name)}</td>
+        <td>${escapeHtml(branch)}</td>
         <td>${escapeHtml(row.college_type)}</td>
         <td>${escapeHtml(row.city)}</td>
         <td>${websiteLink}</td>

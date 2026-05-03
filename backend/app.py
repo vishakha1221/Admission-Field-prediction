@@ -184,8 +184,9 @@ def load_fee_recommendation_dataset():
         ["academic_year_sort", "fee_amount", "rank_ceiling", "rank_floor", "institute_name"],
         ascending=[False, True, True, True, True],
     )
+    # Remove duplicates: keep one row per college-branch combination with lowest fee and most recent year
     dataset = dataset.drop_duplicates(
-        subset=["institute_key", "course_name", "admission_field", "category", "quota", "college_type", "district"],
+        subset=["institute_key", "course_name", "category", "quota"],
         keep="first",
     )
     return dataset
@@ -216,7 +217,7 @@ def _parse_optional_int(value):
         return None
 
 
-def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_min=None, fee_max=None, college_type=None, limit=500):
+def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_min=None, fee_max=None, college_type=None, limit=None):
     """Return verified institute rows that match the prediction and optional filters."""
     source_dataset = load_fee_recommendation_dataset().copy()
     if source_dataset.empty:
@@ -265,7 +266,7 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         matched_predicted_field = not exact_field_rows.empty
         if not exact_field_rows.empty:
             dataset = pd.concat([exact_field_rows, dataset], ignore_index=True)
-            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name", "admission_field", "category", "quota", "college_type", "district"], keep="first")
+            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name", "category", "quota"], keep="first")
 
     dataset["rank_gap"] = (
         dataset[["rank_floor", "rank_ceiling"]].max(axis=1) - rank
@@ -294,7 +295,11 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         "rank_gap",
         "rank_window",
     ]
-    dataset = dataset[columns].head(max(1, int(limit if limit else 500)))
+    # Return all results if no limit specified, otherwise apply limit
+    if limit is not None:
+        dataset = dataset[columns].head(max(1, int(limit)))
+    else:
+        dataset = dataset[columns]
     recommendations = dataset.to_dict(orient="records")
     for row in recommendations:
         row["official_website"] = str(row.get("official_website", "") or "").strip()
