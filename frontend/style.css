@@ -563,6 +563,106 @@ td a:hover {
   text-align: center;
 }
 
+.accuracy-controls {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+}
+
+.accuracy-controls .btn {
+  flex: 1;
+}
+
+.accuracy-display {
+  margin-top: 12px;
+  padding: 12px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  color: #047857;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.accuracy-info-box {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.accuracy-info-box h4 {
+  margin: 0 0 10px;
+  color: #047857;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.accuracy-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  font-size: 13px;
+  color: #065f46;
+}
+
+.accuracy-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+}
+
+.accuracy-metric-label {
+  font-weight: 600;
+}
+
+.accuracy-metric-value {
+  font-weight: 700;
+  color: #047857;
+}
+
+.institute-search-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.institute-search-form .action-row {
+  grid-column: 3;
+  margin-top: 0;
+  grid-template-columns: 1fr;
+}
+
+.institute-search-form .action-row .btn {
+  width: 100%;
+  align-self: flex-end;
+  height: 100%;
+}
+
+#other-search-results {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.other-institutes-table-wrap {
+  margin-top: 12px;
+}
+
+.search-results .recommendation-summary {
+  margin-top: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
 @keyframes slide-up {
   from {
     opacity: 0;

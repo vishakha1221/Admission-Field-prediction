@@ -216,7 +216,7 @@ def _parse_optional_int(value):
         return None
 
 
-def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_min=None, fee_max=None, college_type=None, limit=20):
+def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_min=None, fee_max=None, college_type=None, limit=500):
     """Return verified institute rows that match the prediction and optional filters."""
     source_dataset = load_fee_recommendation_dataset().copy()
     if source_dataset.empty:
@@ -294,7 +294,7 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         "rank_gap",
         "rank_window",
     ]
-    dataset = dataset[columns].head(max(1, int(limit)))
+    dataset = dataset[columns].head(max(1, int(limit if limit else 500)))
     recommendations = dataset.to_dict(orient="records")
     for row in recommendations:
         row["official_website"] = str(row.get("official_website", "") or "").strip()
@@ -671,6 +671,49 @@ def options():
             "quotas": quotas,
         }
     )
+
+
+@app.route("/api/search-institutes")
+def search_institutes():
+    """Search institutes from the fee dataset by institute name, branch, and city."""
+    institute_name = request.args.get("institute_name", "").strip()
+    branch = request.args.get("branch", "").strip()
+    city = request.args.get("city", "").strip()
+    limit = request.args.get("limit", "100")
+
+    fee_dataset = load_fee_recommendation_dataset().copy()
+    
+    if fee_dataset.empty:
+        return jsonify({"results": []})
+
+    # Apply filters
+    if institute_name:
+        fee_dataset = fee_dataset[
+            fee_dataset["institute_name"].astype(str).str.strip().str.casefold().str.contains(institute_name.casefold(), na=False)
+        ]
+    
+    if branch:
+        fee_dataset = fee_dataset[
+            fee_dataset["course_name"].astype(str).str.strip().str.casefold() == branch.casefold()
+        ]
+    
+    if city:
+        fee_dataset = fee_dataset[
+            fee_dataset["city"].astype(str).str.strip().str.casefold() == city.casefold()
+        ]
+    
+    # Limit results
+    try:
+        limit_value = int(limit)
+    except (TypeError, ValueError):
+        limit_value = 100
+    
+    limit_value = max(1, min(limit_value, 500))
+    results = fee_dataset[
+        ["institute_name", "course_name", "admission_field", "college_type", "city", "official_website", "tuition_fee"]
+    ].head(limit_value).to_dict(orient="records")
+    
+    return jsonify({"results": results})
 
 
 @app.route("/api/filter")

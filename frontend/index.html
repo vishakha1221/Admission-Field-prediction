@@ -86,14 +86,20 @@
               </div>
               <p id="result" class="result-text">No prediction yet.</p>
               <span id="result-badge" class="result-badge">Awaiting Input</span>
-              <button type="button" id="check-accuracy-btn" class="btn btn-secondary result-action-btn">Check Accuracy</button>
-              <p id="accuracy-result" class="accuracy-text">No accuracy check yet.</p>
+              <div class="accuracy-controls">
+                <button type="button" id="check-accuracy-btn" class="btn btn-secondary">Check Accuracy</button>
+              </div>
+              <div id="accuracy-result" class="accuracy-display">No accuracy check yet.</div>
             </section>
           </div>
         </article>
       </section>
 
       <section id="recommendation-section" class="card section-block">
+        <div id="accuracy-info" class="accuracy-info-box" style="display:none;">
+          <h4>Prediction Accuracy</h4>
+          <div id="accuracy-metrics" class="accuracy-metrics"></div>
+        </div>
         <div class="section-head section-divider">
           <h2>Verified Eligible Institutes</h2>
           <p>Filter the predicted matches by city, branch, type, and hostel availability. Tuition fees and website links are pulled from the verified fee and institute master sources.</p>
@@ -167,6 +173,66 @@
               <tr><td colspan="5">No recommendation results yet.</td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="institute-search-section" class="card section-block">
+        <div class="section-head section-divider">
+          <h2>Search Other Colleges (Optional)</h2>
+          <p>Search for colleges not in your prediction results above.</p>
+        </div>
+
+        <form id="institute-search-form" class="institute-search-form">
+          <label>
+            Institute Name
+            <div class="input-wrap">
+              <input type="text" id="search-institute-name" placeholder="Enter college name">
+            </div>
+          </label>
+
+          <label>
+            Branch
+            <div class="input-wrap">
+              <select id="search-other-branch">
+                <option value="">All Branches</option>
+              </select>
+            </div>
+          </label>
+
+          <label>
+            City
+            <div class="input-wrap">
+              <select id="search-other-city">
+                <option value="">All Cities</option>
+              </select>
+            </div>
+          </label>
+
+          <div class="action-row">
+            <button type="button" id="search-other-institutes-btn" class="btn btn-primary">Search</button>
+          </div>
+        </form>
+
+        <div id="other-search-results" class="search-results" style="display:none;">
+          <div class="recommendation-summary">
+            <span id="other-search-count" class="pill">0 matches</span>
+          </div>
+          <div class="table-wrap other-institutes-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>No.</th>
+                  <th>Institute Name &amp; Branch</th>
+                  <th>College Type</th>
+                  <th>City</th>
+                  <th>Website</th>
+                </tr>
+              </thead>
+              <tbody id="other-search-results-tbody">
+                <tr><td colspan="5">No results found.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </section>

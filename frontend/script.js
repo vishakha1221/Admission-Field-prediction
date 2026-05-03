@@ -308,9 +308,45 @@ if (checkAccuracyButton) {
       const modelAccuracy = typeof data.model_training_accuracy === 'number'
         ? `${(data.model_training_accuracy * 100).toFixed(2)}%`
         : 'N/A';
+      const similarRows = data.similar_rows_used || 0;
+      const rankWindow = data.rank_window || 0;
 
       if (accuracyResult) {
-        accuracyResult.textContent = `Predicted: ${data.predicted_field} | Estimated Input Accuracy: ${estimatedInputAccuracy} | Model Accuracy: ${modelAccuracy}`;
+        const accuracyInfo = document.getElementById('accuracy-info');
+        const accuracyMetrics = document.getElementById('accuracy-metrics');
+        
+        // Create metrics display
+        const metricsHtml = `
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Predicted Field:</span>
+            <span class="accuracy-metric-value">${escapeHtml(data.predicted_field)}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Estimated Input Accuracy:</span>
+            <span class="accuracy-metric-value">${estimatedInputAccuracy}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Model Training Accuracy:</span>
+            <span class="accuracy-metric-value">${modelAccuracy}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Similar Ranks Found:</span>
+            <span class="accuracy-metric-value">${similarRows}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Rank Window:</span>
+            <span class="accuracy-metric-value">±${rankWindow}</span>
+          </div>
+        `;
+        
+        if (accuracyMetrics) {
+          accuracyMetrics.innerHTML = metricsHtml;
+          if (accuracyInfo) {
+            accuracyInfo.style.display = 'block';
+          }
+        }
+        
+        accuracyResult.textContent = `✓ Accuracy checked for ${data.predicted_field}`;
       }
     } catch (error) {
       if (accuracyResult) {
@@ -326,9 +362,118 @@ if (searchRecommendationsButton) {
   });
 }
 
+// Optional search form for other colleges
+const searchInstituteForm = document.getElementById('institute-search-form');
+const searchInstituteNameInput = document.getElementById('search-institute-name');
+const searchOtherBranchSelect = document.getElementById('search-other-branch');
+const searchOtherCitySelect = document.getElementById('search-other-city');
+const searchOtherInstitutesButton = document.getElementById('search-other-institutes-btn');
+const otherSearchResults = document.getElementById('other-search-results');
+const otherSearchCount = document.getElementById('other-search-count');
+const otherSearchResultsTbody = document.getElementById('other-search-results-tbody');
+
+function renderOtherSearchResults(rows) {
+  if (!otherSearchResultsTbody) return;
+
+  if (!rows || !rows.length) {
+    otherSearchResultsTbody.innerHTML = '<tr><td colspan="5">No institutes found matching your search criteria.</td></tr>';
+    return;
+  }
+
+  otherSearchResultsTbody.innerHTML = rows.map((row, index) => {
+    const websiteLink = row.official_website
+      ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
+      : '<span class="muted-link">Not listed</span>';
+    const instituteBranch = [row.institute_name, row.course_name || row.admission_field].filter(Boolean).join(' - ');
+
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(instituteBranch)}</td>
+        <td>${escapeHtml(row.college_type)}</td>
+        <td>${escapeHtml(row.city)}</td>
+        <td>${websiteLink}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function initializeSearchForm() {
+  // Load options for search form
+  const response = await fetch('/api/options');
+  const data = await response.json();
+
+  if (Array.isArray(data.branches) && searchOtherBranchSelect) {
+    loadSelectOptions(searchOtherBranchSelect, data.branches, 'All Branches');
+  }
+
+  if (Array.isArray(data.cities) && searchOtherCitySelect) {
+    loadSelectOptions(searchOtherCitySelect, data.cities, 'All Cities');
+  }
+}
+
+if (searchOtherInstitutesButton) {
+  searchOtherInstitutesButton.addEventListener('click', async () => {
+    const instituteName = searchInstituteNameInput ? searchInstituteNameInput.value.trim() : '';
+    const branchFilter = searchOtherBranchSelect ? searchOtherBranchSelect.value.trim() : '';
+    const cityFilter = searchOtherCitySelect ? searchOtherCitySelect.value.trim() : '';
+
+    if (!instituteName && !branchFilter && !cityFilter) {
+      if (otherSearchCount) {
+        otherSearchCount.textContent = '0 matches';
+      }
+      renderOtherSearchResults([]);
+      return;
+    }
+
+    try {
+      if (otherSearchCount) {
+        otherSearchCount.textContent = 'Searching...';
+      }
+
+      const queryParams = new URLSearchParams();
+      if (instituteName) queryParams.append('institute_name', instituteName);
+      if (branchFilter) queryParams.append('branch', branchFilter);
+      if (cityFilter) queryParams.append('city', cityFilter);
+
+      const response = await fetch(`/api/search-institutes?${queryParams.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (otherSearchCount) {
+          otherSearchCount.textContent = '0 matches';
+        }
+        renderOtherSearchResults([]);
+        return;
+      }
+
+      const results = Array.isArray(data.results) ? data.results : [];
+      if (otherSearchCount) {
+        otherSearchCount.textContent = `${results.length} match${results.length === 1 ? '' : 'es'}`;
+      }
+
+      renderOtherSearchResults(results);
+      if (otherSearchResults) {
+        otherSearchResults.style.display = results.length > 0 ? 'block' : 'none';
+      }
+    } catch (error) {
+      console.error('Search failed:', error);
+      if (otherSearchCount) {
+        otherSearchCount.textContent = '0 matches';
+      }
+      renderOtherSearchResults([]);
+    }
+  });
+}
+
 loadFilterOptions().catch(() => {
   if (categorySelect) categorySelect.innerHTML = '<option value="">Unable to load categories</option>';
   if (quotaSelect) quotaSelect.innerHTML = '<option value="">Unable to load quotas</option>';
   if (searchCitySelect) searchCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
   if (searchBranchSelect) searchBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
+});
+
+initializeSearchForm().catch(() => {
+  if (searchOtherBranchSelect) searchOtherBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
+  if (searchOtherCitySelect) searchOtherCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
 });
