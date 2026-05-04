@@ -769,6 +769,12 @@ def search_institutes():
             fee_dataset["college_type"].astype(str).str.strip().str.casefold() == college_type.casefold()
         ]
     
+    # Remove duplicates to avoid showing same college-branch combination multiple times
+    fee_dataset = fee_dataset.drop_duplicates(
+        subset=["institute_key", "course_name"],
+        keep="first"
+    )
+    
     # Limit results
     try:
         limit_value = int(limit)

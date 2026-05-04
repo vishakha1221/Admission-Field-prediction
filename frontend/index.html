@@ -200,9 +200,12 @@
         <form id="institute-search-form" class="institute-search-form">
           <label>
             Institute Type
-            <div class="input-wrap">
-              <input type="text" id="search-other-institute-name" placeholder="Enter institute name">
-            </div>
+            <select id="search-institute-type">
+              <option value="">All Types</option>
+              <option value="Govt">Govt</option>
+              <option value="GIA">GIA</option>
+              <option value="SFI">SFI</option>
+            </select>
           </label>
 
           <label>
@@ -224,9 +227,8 @@
           </label>
 
           <div class="filter-action recommendation-action">
-            <button type="button" id="search-recommendations-btn" class="btn btn-primary">Search Institutes</button>
+            <button type="button" id="search-other-institutes-btn" class="btn btn-primary">Search Institutes</button>
           </div>
-        </div>
         </form>
 
         <div id="other-search-results" class="search-results" style="display:none;">
