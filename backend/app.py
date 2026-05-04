@@ -769,11 +769,15 @@ def search_institutes():
             fee_dataset["college_type"].astype(str).str.strip().str.casefold() == college_type.casefold()
         ]
     
-    # Remove duplicates to avoid showing same college-branch combination multiple times
+    # CRITICAL: Remove ALL duplicates by institute_key + course_name
+    # This ensures each college-branch combination appears exactly once
     fee_dataset = fee_dataset.drop_duplicates(
         subset=["institute_key", "course_name"],
         keep="first"
     )
+    
+    # Sort by institute name for consistent ordering
+    fee_dataset = fee_dataset.sort_values("institute_name", ascending=True)
     
     # Limit results
     try:
@@ -782,9 +786,13 @@ def search_institutes():
         limit_value = 100
     
     limit_value = max(1, min(limit_value, 500))
+    
+    # Apply limit AFTER deduplication
+    fee_dataset = fee_dataset.head(limit_value)
+    
     results_subset = fee_dataset[
         ["institute_name", "course_name", "admission_field", "college_type", "city", "tuition_fee"]
-    ].head(limit_value).copy()
+    ].copy()
     
     # Add website from institute master
     if institute_master is not None:
