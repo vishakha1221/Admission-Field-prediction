@@ -256,7 +256,10 @@ label {
   fill: currentcolor;
 }
 
-input,
+input {
+  padding-left: 36px;
+}
+
 select {
   width: 100%;
   border: 1px solid #d9e2ec;

@@ -81,7 +81,7 @@
             <section class="result-card">
               <h3>Prediction Result</h3>
               <div id="prediction-empty" class="empty-state">
-                <p class="empty-illustration" aria-hidden="true">ðŸŽ“</p>
+
                 <p>No prediction yet. Submit your details to get your best-fit admission field.</p>
               </div>
               <p id="result" class="result-text">No prediction yet.</p>
@@ -148,6 +148,19 @@
             </select>
           </label>
 
+          <label>
+            Fees 
+            <select id="search-fee-range">
+              <option value="">Any</option>
+              <option value="0-100000">₹0 - ₹100,000</option>
+              <option value="100000-200000">₹100,000 - ₹200,000</option>
+              <option value="200000-300000">₹200,000 - ₹300,000</option>
+              <option value="300000-400000">₹300,000 - ₹400,000</option>
+              <option value="400000-500000">₹400,000 - ₹500,000</option>
+              <option value="500000-10000000">₹500,000+</option>
+            </select>
+          </label>
+
           <div class="filter-action recommendation-action">
             <button type="button" id="search-recommendations-btn" class="btn btn-primary">Search Institutes</button>
           </div>
@@ -166,12 +179,15 @@
                 <th>Institute Name</th>
                 <th>Branch</th>
                 <th>College Type</th>
+                <th>City</th>
+                <th>Boys Hostel</th>
+                <th>Girls Hostel</th>
                 <th>Tuition Fees</th>
                 <th>Website</th>
               </tr>
             </thead>
             <tbody id="recommendation-results">
-              <tr><td colspan="6">No recommendation results yet.</td></tr>
+              <tr><td colspan="9">No recommendation results yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -187,7 +203,9 @@
           <label>
             Institute Name
             <div class="input-wrap">
-              <input type="text" id="search-institute-name" placeholder="Enter college name">
+              <select id="search-other-branch">
+                <option value="">All Branches</option>
+              </select>
             </div>
           </label>
 
@@ -209,9 +227,10 @@
             </div>
           </label>
 
-          <div class="action-row">
-            <button type="button" id="search-other-institutes-btn" class="btn btn-primary">Search</button>
+          <div class="filter-action recommendation-action">
+            <button type="button" id="search-recommendations-btn" class="btn btn-primary">Search Institutes</button>
           </div>
+        </div>
         </form>
 
         <div id="other-search-results" class="search-results" style="display:none;">
@@ -228,11 +247,12 @@
                   <th>Branch</th>
                   <th>College Type</th>
                   <th>City</th>
+                  <th>Tuition Fees</th>
                   <th>Website</th>
                 </tr>
               </thead>
               <tbody id="other-search-results-tbody">
-                <tr><td colspan="6">No results found.</td></tr>
+                <tr><td colspan="7">No results found.</td></tr>
               </tbody>
             </table>
           </div>
