@@ -189,6 +189,23 @@
             </tbody>
           </table>
         </div>
+        <div class="pagination-bar" id="recommendation-pagination" style="display:none;">
+          <div class="page-size-control">
+            <label>Rows per page:
+              <select id="recommendation-page-size">
+                <option value="10" selected>10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+          </div>
+          <p id="recommendation-page-info">Page 0 of 0</p>
+          <div>
+            <button type="button" id="recommendation-prev-btn" class="btn btn-secondary">← Previous</button>
+            <button type="button" id="recommendation-next-btn" class="btn btn-secondary">Next →</button>
+          </div>
+        </div>
       </section>
 
       <section id="institute-search-section" class="card section-block">
@@ -240,8 +257,7 @@
               <thead>
                 <tr>
                   <th>No.</th>
-                  <th>Institute Name
-                  </th>
+                  <th>Institute Name</th>
                   <th>Branch</th>
                   <th>College Type</th>
                   <th>City</th>
@@ -253,6 +269,23 @@
                 <tr><td colspan="7">No results found.</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="pagination-bar" id="other-search-pagination" style="display:none;">
+            <div class="page-size-control">
+              <label>Rows per page:
+                <select id="other-search-page-size">
+                  <option value="10" selected>10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <p id="other-search-page-info">Page 0 of 0</p>
+            <div>
+              <button type="button" id="other-search-prev-btn" class="btn btn-secondary">← Previous</button>
+              <button type="button" id="other-search-next-btn" class="btn btn-secondary">Next →</button>
+            </div>
           </div>
         </div>
       </section>
