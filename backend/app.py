@@ -694,55 +694,43 @@ def script():
     return send_from_directory(FRONTEND_DIR, "script.js")
 
 
-@app.route("/api/test-version")
-def test_version():
-    """Test endpoint to verify code is loaded."""
-    return jsonify({"version": "v2", "status": "options-updated"})
-
-
 @app.route("/api/options")
 def options():
-    """Return filter options for the institute search UI - all data from CSV."""
-    # Load fee dataset as the primary source of truth
-    fee_dataset = load_fee_recommendation_dataset()
+    """Return filter options for the institute search UI."""
+    dataset = load_institute_search_dataset()
     prediction_dataset = load_prediction_dataset()
-    
-    if fee_dataset.empty:
-        return jsonify({
-            "branches": [],
-            "cities": [],
-            "institutes": [],
-            "boys_hostel": [],
-            "girls_hostel": [],
-            "categories": [],
-            "quotas": [],
-            "college_types": [],
-        })
-    
-    # Get all unique values from the fee dataset
-    branches = sorted([b for b in _unique_values(fee_dataset, "course_name") if b and str(b).strip()])
-    cities = sorted([c for c in _unique_values(fee_dataset, "city") if c and str(c).strip()])
-    college_types = sorted([ct for ct in _unique_values(fee_dataset, "college_type") if ct and str(ct).strip() and str(ct).strip().lower() != 'nan'])
-    
-    # Get prediction categories and quotas
+
+    allowed_keys = None
+    master_institutes = None
+    institute_master = load_institute_master_dataset()
+    if institute_master is not None:
+        master_institutes = institute_master["institute_name"].tolist()
+        allowed_keys = set(institute_master["_dedupe_key"].tolist())
+        dataset["_institute_key"] = dataset["institute_name"].astype(str).map(normalize_text)
+        dataset = dataset[dataset["_institute_key"].isin(allowed_keys)]
+
+    branches = sorted(_unique_values(dataset, "course_name"))
+    if master_institutes is not None:
+        institutes = sorted(master_institutes)
+        cities = sorted({infer_city(name) for name in master_institutes if str(name).strip()})
+    else:
+        cities = sorted(_unique_values(dataset, "city"))
+        institutes = sorted(_unique_values(dataset, "institute_name"))
+    boys_hostel_options = sorted(_unique_values(dataset, "boys_hostel"))
+    girls_hostel_options = sorted(_unique_values(dataset, "girls_hostel"))
     categories = sorted(_unique_values(prediction_dataset, "category"))
     quotas = sorted(_unique_values(prediction_dataset, "quota"))
-    
-    # Get institute names and hostel options
-    institutes = sorted([i for i in _unique_values(fee_dataset, "institute_name") if i and str(i).strip()])
-    boys_hostel = sorted([b for b in _unique_values(fee_dataset, "boys_hostel") if b and str(b).strip()])
-    girls_hostel = sorted([g for g in _unique_values(fee_dataset, "girls_hostel") if g and str(g).strip()])
-    
-    return jsonify({
-        "branches": branches,
-        "cities": cities,
-        "institutes": institutes,
-        "boys_hostel": boys_hostel,
-        "girls_hostel": girls_hostel,
-        "categories": categories,
-        "quotas": quotas,
-        "college_types": college_types,
-    })
+    return jsonify(
+        {
+            "branches": branches,
+            "cities": cities,
+            "institutes": institutes,
+            "boys_hostel": boys_hostel_options,
+            "girls_hostel": girls_hostel_options,
+            "categories": categories,
+            "quotas": quotas,
+        }
+    )
 
 
 @app.route("/api/search-institutes")

@@ -7,6 +7,7 @@ const accuracyResult = document.getElementById('accuracy-result');
 
 const searchCitySelect = document.getElementById('search-city');
 const searchBranchSelect = document.getElementById('search-branch');
+const searchTypeSelect = document.getElementById('search-type');
 const searchBoysHostelSelect = document.getElementById('search-boys-hostel');
 const searchGirlsHostelSelect = document.getElementById('search-girls-hostel');
 const searchFeeRangeSelect = document.getElementById('search-fee-range');
@@ -14,11 +15,6 @@ const searchRecommendationsButton = document.getElementById('search-recommendati
 const recommendationResults = document.getElementById('recommendation-results');
 const recommendationCount = document.getElementById('recommendation-count');
 const recommendationNote = document.getElementById('recommendation-note');
-
-// Search Other Colleges form elements
-const searchInstituteTypeSelect = document.getElementById('search-institute-type');
-const searchOtherBranchSelect = document.getElementById('search-other-branch');
-const searchOtherCitySelect = document.getElementById('search-other-city');
 
 const categorySelect = document.getElementById('category');
 const quotaSelect = document.getElementById('quota');
@@ -36,16 +32,6 @@ let activeFilters = {};
 let isFetchingPage = false;
 let lastFilterKey = '';
 const institutePageCache = new Map();
-
-// Pagination variables for recommendations
-let allRecommendationRows = [];
-let currentRecommendationPage = 1;
-let recommendationPageSize = 10;
-
-// Pagination variables for other search
-let allOtherSearchRows = [];
-let currentOtherSearchPage = 1;
-let otherSearchPageSize = 10;
 
 function setPredictionState(message, isSuccess = false) {
   if (result) result.textContent = message;
@@ -126,56 +112,6 @@ function renderRecommendationRows(rows) {
   }).join('');
 }
 
-function updateRecommendationPagination() {
-  const totalPages = Math.ceil(allRecommendationRows.length / recommendationPageSize);
-  const startIdx = (currentRecommendationPage - 1) * recommendationPageSize;
-  const endIdx = startIdx + recommendationPageSize;
-  const pageRows = allRecommendationRows.slice(startIdx, endIdx);
-  
-  renderRecommendationRows(pageRows);
-  
-  // Show/hide pagination bar based on whether there are results
-  const paginationBar = document.getElementById('recommendation-pagination');
-  if (paginationBar) {
-    paginationBar.style.display = allRecommendationRows.length > 0 ? 'flex' : 'none';
-  }
-  
-  const pageInfo = document.getElementById('recommendation-page-info');
-  if (pageInfo) {
-    pageInfo.textContent = `Page ${currentRecommendationPage} of ${totalPages}`;
-  }
-  
-  const prevBtn = document.getElementById('recommendation-prev-btn');
-  const nextBtn = document.getElementById('recommendation-next-btn');
-  if (prevBtn) prevBtn.disabled = currentRecommendationPage === 1;
-  if (nextBtn) nextBtn.disabled = currentRecommendationPage >= totalPages;
-}
-
-function updateOtherSearchPagination() {
-  const totalPages = Math.ceil(allOtherSearchRows.length / otherSearchPageSize);
-  const startIdx = (currentOtherSearchPage - 1) * otherSearchPageSize;
-  const endIdx = startIdx + otherSearchPageSize;
-  const pageRows = allOtherSearchRows.slice(startIdx, endIdx);
-  
-  renderOtherSearchResults(pageRows);
-  
-  // Show/hide pagination bar based on whether there are results
-  const paginationBar = document.getElementById('other-search-pagination');
-  if (paginationBar) {
-    paginationBar.style.display = allOtherSearchRows.length > 0 ? 'flex' : 'none';
-  }
-  
-  const pageInfo = document.getElementById('other-search-page-info');
-  if (pageInfo) {
-    pageInfo.textContent = `Page ${currentOtherSearchPage} of ${totalPages}`;
-  }
-  
-  const prevBtn = document.getElementById('other-search-prev-btn');
-  const nextBtn = document.getElementById('other-search-next-btn');
-  if (prevBtn) prevBtn.disabled = currentOtherSearchPage === 1;
-  if (nextBtn) nextBtn.disabled = currentOtherSearchPage >= totalPages;
-}
-
 function collectPredictionPayload() {
   return {
     rank: document.getElementById('rank').value,
@@ -233,10 +169,7 @@ function applyRecommendationFilters() {
     });
   }
 
-  // Store all rows and reset to page 1 for pagination
-  allRecommendationRows = rows;
-  currentRecommendationPage = 1;
-  updateRecommendationPagination();
+  renderRecommendationRows(rows);
 
   if (!currentPredictionData) {
     setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
@@ -280,6 +213,15 @@ function loadSelectOptions(selectElement, options, placeholder) {
 }
 
 function loadStaticSearchOptions() {
+  if (searchTypeSelect) {
+    searchTypeSelect.innerHTML = `
+      <option value="">All Types</option>
+      <option value="Govt">Govt</option>
+      <option value="GIA">GIA</option>
+      <option value="SFI">SFI</option>
+    `;
+  }
+
   if (searchBoysHostelSelect) {
     searchBoysHostelSelect.innerHTML = `
       <option value="">All</option>
@@ -322,36 +264,6 @@ async function loadFilterOptions() {
       loadSelectOptions(searchBranchSelect, data.branches, 'All Branches');
     }
 
-    // Dynamically populate search form selects from API
-    if (Array.isArray(data.college_types) && searchInstituteTypeSelect) {
-      searchInstituteTypeSelect.innerHTML = '<option value="">All Types</option>';
-      data.college_types.forEach(type => {
-        const option = document.createElement('option');
-        option.value = type;
-        option.textContent = type;
-        searchInstituteTypeSelect.appendChild(option);
-      });
-    }
-
-    console.log('About to populate search dropdowns:', {
-      hasBranches: Array.isArray(data.branches),
-      branchesCount: Array.isArray(data.branches) ? data.branches.length : 0,
-      searchOtherBranchSelectExists: !!searchOtherBranchSelect,
-      hasCities: Array.isArray(data.cities),
-      citiesCount: Array.isArray(data.cities) ? data.cities.length : 0,
-      searchOtherCitySelectExists: !!searchOtherCitySelect
-    });
-
-    if (Array.isArray(data.branches) && searchOtherBranchSelect) {
-      console.log('Populating search other branch select');
-      loadSelectOptions(searchOtherBranchSelect, data.branches, 'All Branches');
-    }
-
-    if (Array.isArray(data.cities) && searchOtherCitySelect) {
-      console.log('Populating search other city select');
-      loadSelectOptions(searchOtherCitySelect, data.cities, 'All Cities');
-    }
-
     loadStaticSearchOptions();
     setPredictionState('No prediction yet.', false);
     setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
@@ -362,9 +274,6 @@ async function loadFilterOptions() {
     if (quotaSelect) quotaSelect.innerHTML = '<option value="">Unable to load quotas</option>';
     if (searchCitySelect) searchCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
     if (searchBranchSelect) searchBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
-    if (searchInstituteTypeSelect) searchInstituteTypeSelect.innerHTML = '<option value="">Unable to load types</option>';
-    if (searchOtherBranchSelect) searchOtherBranchSelect.innerHTML = '<option value="">Unable to load branches</option>';
-    if (searchOtherCitySelect) searchOtherCitySelect.innerHTML = '<option value="">Unable to load cities</option>';
   }
 }
 
@@ -396,8 +305,6 @@ form.addEventListener('submit', async (event) => {
       setPredictionState(data.error || 'Prediction failed.', false);
       currentPredictionRows = [];
       currentPredictionData = null;
-      allRecommendationRows = [];
-      currentRecommendationPage = 1;
       renderRecommendationRows([]);
       setRecommendationSummary(0, data.error || 'No verified recommendations available.');
       return;
@@ -412,8 +319,6 @@ form.addEventListener('submit', async (event) => {
     setPredictionState('Unable to connect to the backend.', false);
     currentPredictionRows = [];
     currentPredictionData = null;
-    allRecommendationRows = [];
-    currentRecommendationPage = 1;
     renderRecommendationRows([]);
     setRecommendationSummary(0, 'Unable to load verified institute matches.');
   }
@@ -508,26 +413,6 @@ if (searchRecommendationsButton) {
   searchRecommendationsButton.addEventListener('click', () => {
     applyRecommendationFilters();
   });
-}
-
-// Reset pagination when any recommendation filter changes
-if (searchCitySelect) {
-  searchCitySelect.addEventListener('change', applyRecommendationFilters);
-}
-if (searchBranchSelect) {
-  searchBranchSelect.addEventListener('change', applyRecommendationFilters);
-}
-if (searchTypeSelect) {
-  searchTypeSelect.addEventListener('change', applyRecommendationFilters);
-}
-if (searchBoysHostelSelect) {
-  searchBoysHostelSelect.addEventListener('change', applyRecommendationFilters);
-}
-if (searchGirlsHostelSelect) {
-  searchGirlsHostelSelect.addEventListener('change', applyRecommendationFilters);
-}
-if (searchFeeRangeSelect) {
-  searchFeeRangeSelect.addEventListener('change', applyRecommendationFilters);
 }
 
 // Optional search form for other colleges
@@ -627,11 +512,7 @@ if (searchOtherInstitutesButton) {
         otherSearchCount.textContent = `${results.length} match${results.length === 1 ? '' : 'es'}`;
       }
 
-      // Store all results and reset to page 1 for pagination
-      allOtherSearchRows = results;
-      currentOtherSearchPage = 1;
-      updateOtherSearchPagination();
-      
+      renderOtherSearchResults(results);
       if (otherSearchResults) {
         otherSearchResults.style.display = results.length > 0 ? 'block' : 'none';
       }
@@ -641,70 +522,6 @@ if (searchOtherInstitutesButton) {
         otherSearchCount.textContent = '0 matches';
       }
       renderOtherSearchResults([]);
-    }
-  });
-}
-
-// Recommendation pagination controls
-const recommendationPageSizeSelect = document.getElementById('recommendation-page-size');
-const recommendationPrevBtn = document.getElementById('recommendation-prev-btn');
-const recommendationNextBtn = document.getElementById('recommendation-next-btn');
-
-if (recommendationPageSizeSelect) {
-  recommendationPageSizeSelect.addEventListener('change', (e) => {
-    recommendationPageSize = parseInt(e.target.value, 10);
-    currentRecommendationPage = 1;
-    updateRecommendationPagination();
-  });
-}
-
-if (recommendationPrevBtn) {
-  recommendationPrevBtn.addEventListener('click', () => {
-    if (currentRecommendationPage > 1) {
-      currentRecommendationPage--;
-      updateRecommendationPagination();
-    }
-  });
-}
-
-if (recommendationNextBtn) {
-  recommendationNextBtn.addEventListener('click', () => {
-    const totalPages = Math.ceil(allRecommendationRows.length / recommendationPageSize);
-    if (currentRecommendationPage < totalPages) {
-      currentRecommendationPage++;
-      updateRecommendationPagination();
-    }
-  });
-}
-
-// Other search pagination controls
-const otherSearchPageSizeSelect = document.getElementById('other-search-page-size');
-const otherSearchPrevBtn = document.getElementById('other-search-prev-btn');
-const otherSearchNextBtn = document.getElementById('other-search-next-btn');
-
-if (otherSearchPageSizeSelect) {
-  otherSearchPageSizeSelect.addEventListener('change', (e) => {
-    otherSearchPageSize = parseInt(e.target.value, 10);
-    currentOtherSearchPage = 1;
-    updateOtherSearchPagination();
-  });
-}
-
-if (otherSearchPrevBtn) {
-  otherSearchPrevBtn.addEventListener('click', () => {
-    if (currentOtherSearchPage > 1) {
-      currentOtherSearchPage--;
-      updateOtherSearchPagination();
-    }
-  });
-}
-
-if (otherSearchNextBtn) {
-  otherSearchNextBtn.addEventListener('click', () => {
-    const totalPages = Math.ceil(allOtherSearchRows.length / otherSearchPageSize);
-    if (currentOtherSearchPage < totalPages) {
-      currentOtherSearchPage++;
-      updateOtherSearchPagination();
     }
   });
 }
