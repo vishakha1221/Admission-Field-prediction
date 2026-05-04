@@ -743,6 +743,7 @@ def search_institutes():
     limit = request.args.get("limit", "100")
 
     fee_dataset = load_fee_recommendation_dataset().copy()
+    institute_master = load_institute_master_dataset()
     
     if fee_dataset.empty:
         return jsonify({"results": []})
@@ -775,11 +776,20 @@ def search_institutes():
         limit_value = 100
     
     limit_value = max(1, min(limit_value, 500))
-    results = _json_safe_records(
-        fee_dataset[
-            ["institute_name", "course_name", "admission_field", "college_type", "city", "official_website", "tuition_fee"]
-        ].head(limit_value)
-    )
+    results_subset = fee_dataset[
+        ["institute_name", "course_name", "admission_field", "college_type", "city", "tuition_fee"]
+    ].head(limit_value).copy()
+    
+    # Add website from institute master
+    if institute_master is not None:
+        website_map = dict(zip(institute_master["institute_name"], institute_master["official_website"]))
+        results_subset["official_website"] = results_subset["institute_name"].apply(
+            lambda x: website_map.get(x, "")
+        )
+    else:
+        results_subset["official_website"] = ""
+    
+    results = _json_safe_records(results_subset)
     
     return jsonify({"results": results})
 

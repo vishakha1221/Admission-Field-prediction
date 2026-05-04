@@ -10,6 +10,7 @@ const searchBranchSelect = document.getElementById('search-branch');
 const searchTypeSelect = document.getElementById('search-type');
 const searchBoysHostelSelect = document.getElementById('search-boys-hostel');
 const searchGirlsHostelSelect = document.getElementById('search-girls-hostel');
+const searchFeeRangeSelect = document.getElementById('search-fee-range');
 const searchRecommendationsButton = document.getElementById('search-recommendations-btn');
 const recommendationResults = document.getElementById('recommendation-results');
 const recommendationCount = document.getElementById('recommendation-count');
@@ -82,7 +83,7 @@ function renderRecommendationRows(rows) {
   }
 
   if (!rows.length) {
-    recommendationResults.innerHTML = '<tr><td colspan="6">No verified institutes matched the current search filters.</td></tr>';
+    recommendationResults.innerHTML = '<tr><td colspan="9">No verified institutes matched the current search filters.</td></tr>';
     return;
   }
 
@@ -91,6 +92,9 @@ function renderRecommendationRows(rows) {
       ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
       : '<span class="muted-link">Not listed</span>';
     const branch = row.course_name || row.admission_field || '-';
+    const city = row.city || '-';
+    const boysHostel = row.boys_hostel || '-';
+    const girlsHostel = row.girls_hostel || '-';
 
     return `
       <tr>
@@ -98,6 +102,9 @@ function renderRecommendationRows(rows) {
         <td>${escapeHtml(row.institute_name)}</td>
         <td>${escapeHtml(branch)}</td>
         <td>${escapeHtml(row.college_type)}</td>
+        <td>${escapeHtml(city)}</td>
+        <td>${escapeHtml(boysHostel)}</td>
+        <td>${escapeHtml(girlsHostel)}</td>
         <td>${escapeHtml(row.tuition_fee)}</td>
         <td>${websiteLink}</td>
       </tr>
@@ -118,12 +125,24 @@ function normalizeText(value) {
 }
 
 function applyRecommendationFilters() {
+  const feeRangeValue = searchFeeRangeSelect ? searchFeeRangeSelect.value.trim() : '';
+  let feeMin = null;
+  let feeMax = null;
+  
+  if (feeRangeValue) {
+    const [min, max] = feeRangeValue.split('-').map(v => parseInt(v, 10));
+    feeMin = min;
+    feeMax = max;
+  }
+  
   const filters = {
     city: searchCitySelect ? searchCitySelect.value.trim() : '',
     branch: searchBranchSelect ? searchBranchSelect.value.trim() : '',
     collegeType: searchTypeSelect ? searchTypeSelect.value.trim() : '',
     boysHostel: searchBoysHostelSelect ? searchBoysHostelSelect.value.trim() : '',
     girlsHostel: searchGirlsHostelSelect ? searchGirlsHostelSelect.value.trim() : '',
+    feeMin: feeMin,
+    feeMax: feeMax,
   };
 
   let rows = [...currentPredictionRows];
@@ -143,6 +162,12 @@ function applyRecommendationFilters() {
   if (filters.girlsHostel) {
     rows = rows.filter((row) => normalizeText(row.girls_hostel) === normalizeText(filters.girlsHostel));
   }
+  if (filters.feeMin !== null && filters.feeMax !== null) {
+    rows = rows.filter((row) => {
+      const fee = parseInt(row.tuition_fee, 10);
+      return !isNaN(fee) && fee >= filters.feeMin && fee <= filters.feeMax;
+    });
+  }
 
   renderRecommendationRows(rows);
 
@@ -158,6 +183,9 @@ function applyRecommendationFilters() {
   if (filters.collegeType) filterFragments.push(`type ${filters.collegeType}`);
   if (filters.boysHostel) filterFragments.push(`boys hostel ${filters.boysHostel}`);
   if (filters.girlsHostel) filterFragments.push(`girls hostel ${filters.girlsHostel}`);
+  if (filters.feeMin !== null && filters.feeMax !== null) {
+    filterFragments.push(`fees ₹${filters.feeMin} - ₹${filters.feeMax}`);
+  }
 
   const filterText = filterFragments.length ? ` after filtering by ${filterFragments.join(', ')}` : '';
   const baseText = currentPredictionData.matched_predicted_field === false
@@ -401,7 +429,7 @@ function renderOtherSearchResults(rows) {
   if (!otherSearchResultsTbody) return;
 
   if (!rows || !rows.length) {
-    otherSearchResultsTbody.innerHTML = '<tr><td colspan="6">No institutes found matching your search criteria.</td></tr>';
+    otherSearchResultsTbody.innerHTML = '<tr><td colspan="7">No institutes found matching your search criteria.</td></tr>';
     return;
   }
 
@@ -410,6 +438,7 @@ function renderOtherSearchResults(rows) {
       ? `<a href="${escapeHtml(row.official_website)}" target="_blank" rel="noreferrer">Visit</a>`
       : '<span class="muted-link">Not listed</span>';
     const branch = row.course_name || row.admission_field || '-';
+    const fees = row.tuition_fee || '-';
 
     return `
       <tr>
@@ -418,6 +447,7 @@ function renderOtherSearchResults(rows) {
         <td>${escapeHtml(branch)}</td>
         <td>${escapeHtml(row.college_type)}</td>
         <td>${escapeHtml(row.city)}</td>
+        <td>${escapeHtml(fees)}</td>
         <td>${websiteLink}</td>
       </tr>
     `;
