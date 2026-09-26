@@ -2,6 +2,7 @@ from pathlib import Path
 from functools import lru_cache
 from math import ceil
 import re
+import subprocess
 import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,6 +15,7 @@ import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 
 from backend.preprocess import (
+    FEATURE_COLUMNS,
     INSTITUTE_MASTER_FILE_V2,
     encode_training_data,
     infer_city,
@@ -43,6 +45,7 @@ PREDICTION_DEFAULTS = {
 }
 
 app = Flask(__name__)
+MODEL_LOAD_ERROR = None
 
 
 @lru_cache(maxsize=1)
@@ -362,6 +365,7 @@ def _build_prediction_response(rank, category, quota, fee_min=None, fee_max=None
         return None, None
 
     predicted_field = _predict_field(model_bundle, rank, category, quota)
+    prediction_probability = _prediction_probability(model_bundle, rank, category, quota)
     eligible_institutes, matched_predicted_field = _recommend_eligible_institutes(
         rank=rank,
         category=category,
@@ -374,6 +378,7 @@ def _build_prediction_response(rank, category, quota, fee_min=None, fee_max=None
 
     response = {
         "predicted_field": predicted_field,
+        "probability": prediction_probability,
         "selected_rank": rank,
         "selected_category": standardize_category(category or model_bundle["default_category"]),
         "selected_quota": standardize_quota(quota or model_bundle["default_quota"]),
@@ -418,6 +423,31 @@ def _resolve_model_file():
     return None
 
 
+def _ensure_model_file():
+    """Train the model once when a fresh checkout has no saved artifact."""
+    model_file = _resolve_model_file()
+    if model_file:
+        return model_file
+
+    training_script = BASE_DIR / "notebook" / "model_training.py"
+    if not training_script.exists():
+        return None
+
+    try:
+        subprocess.run(
+            [sys.executable, str(training_script)],
+            cwd=BASE_DIR,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=900,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _resolve_model_file()
+
+
 def _match_encoder_label(raw_value, encoder):
     """Map a normalized input value to the exact encoder class label."""
     if raw_value is None:
@@ -456,10 +486,26 @@ def _predict_field(model_bundle, rank, category, quota):
     quota_encoded = model_bundle["quota_encoder"].transform([quota])[0]
     prediction_features = pd.DataFrame(
         [[rank, category_encoded, quota_encoded]],
-        columns=["rank", "category", "quota"],
+        columns=model_bundle.get("feature_order", FEATURE_COLUMNS),
     )
     prediction_encoded = model_bundle["model"].predict(prediction_features)[0]
     return model_bundle["target_encoder"].inverse_transform([prediction_encoded])[0]
+
+
+def _prediction_probability(model_bundle, rank, category, quota):
+    """Return the winning class probability when supported by the estimator."""
+    if not hasattr(model_bundle["model"], "predict_proba"):
+        return None
+    category = standardize_category(category or model_bundle["default_category"])
+    quota = standardize_quota(quota or model_bundle["default_quota"])
+    category_encoded = model_bundle["category_encoder"].transform([category])[0]
+    quota_encoded = model_bundle["quota_encoder"].transform([quota])[0]
+    features = pd.DataFrame(
+        [[rank, category_encoded, quota_encoded]],
+        columns=model_bundle.get("feature_order", FEATURE_COLUMNS),
+    )
+    probabilities = model_bundle["model"].predict_proba(features)[0]
+    return round(float(max(probabilities)), 4)
 
 
 def _estimate_segment_accuracy(model_bundle, rank, category, quota):
@@ -528,11 +574,17 @@ def add_cors_headers(response):
 @lru_cache(maxsize=1)
 def load_model_bundle():
     """Load the trained model and encoders with fallback to dataset-based encoders."""
-    model_file = _resolve_model_file()
+    global MODEL_LOAD_ERROR
+    model_file = _ensure_model_file()
     if not model_file or not DATA_FILE.exists():
+        MODEL_LOAD_ERROR = "The model could not be found or trained. Run: python notebook/model_training.py"
         return None
 
-    model_artifact = joblib.load(model_file)
+    try:
+        model_artifact = joblib.load(model_file)
+    except Exception as error:
+        MODEL_LOAD_ERROR = f"The model file could not be loaded: {error}"
+        return None
     if isinstance(model_artifact, dict) and "model" in model_artifact:
         model = model_artifact["model"]
         category_encoder = model_artifact.get("category_encoder")
@@ -579,6 +631,7 @@ def load_model_bundle():
         training_accuracy = None
         total_samples = 0
 
+    MODEL_LOAD_ERROR = None
     return {
         "model": model,
         "category_encoder": category_encoder,
@@ -589,6 +642,9 @@ def load_model_bundle():
         "model_file": str(model_file),
         "training_accuracy": training_accuracy,
         "total_samples": total_samples,
+        "feature_order": model_artifact.get("feature_order", FEATURE_COLUMNS)
+        if isinstance(model_artifact, dict)
+        else FEATURE_COLUMNS,
     }
 
 
@@ -616,6 +672,9 @@ def predict():
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
+    if rank <= 0:
+        return jsonify({"error": "Rank must be greater than zero."}), 400
+
     if fee_min is not None and fee_max is not None and fee_min > fee_max:
         fee_min, fee_max = fee_max, fee_min
 
@@ -633,11 +692,7 @@ def predict():
         return jsonify({"error": "Category or quota is not recognized by the trained model."}), 400
 
     if not response or not model_bundle:
-        return jsonify(
-            {
-                "error": "Trained model file was not found. Expected one of: model/model.pkl, model/trained_model.pkl, models/model.pkl, idel/model.pkl"
-            }
-        ), 500
+        return jsonify({"error": MODEL_LOAD_ERROR or "The prediction model is unavailable."}), 503
 
     return jsonify(response)
 
@@ -660,6 +715,9 @@ def check_prediction_accuracy():
     except (TypeError, ValueError):
         return jsonify({"error": "Rank must be a valid number."}), 400
 
+    if rank <= 0:
+        return jsonify({"error": "Rank must be greater than zero."}), 400
+
     if fee_min is not None and fee_max is not None and fee_min > fee_max:
         fee_min, fee_max = fee_max, fee_min
 
@@ -677,7 +735,7 @@ def check_prediction_accuracy():
         return jsonify({"error": "Category or quota is not recognized by the trained model."}), 400
 
     if not response or not model_bundle:
-        return jsonify({"error": "Trained model file was not found."}), 500
+        return jsonify({"error": MODEL_LOAD_ERROR or "The prediction model is unavailable."}), 503
 
     return jsonify(response)
 
@@ -735,77 +793,58 @@ def options():
 
 @app.route("/api/search-institutes")
 def search_institutes():
-    """Search institutes from the fee dataset by institute name, branch, and city."""
+    """Search institutes with all supplied filters, including partial text matches."""
     institute_name = request.args.get("institute_name", "").strip()
     branch = request.args.get("branch", "").strip()
     city = request.args.get("city", "").strip()
     college_type = request.args.get("college_type", "").strip()
+    boys_hostel = request.args.get("boys_hostel", "").strip()
+    girls_hostel = request.args.get("girls_hostel", "").strip()
     limit = request.args.get("limit", "100")
 
-    fee_dataset = load_fee_recommendation_dataset().copy()
-    institute_master = load_institute_master_dataset()
-    
-    if fee_dataset.empty:
+    dataset = load_institute_search_dataset().copy()
+    if dataset.empty:
         return jsonify({"results": []})
 
-    # Apply filters
+    dataset["institute_key"] = dataset["institute_name"].map(normalize_text)
+    dataset["course_key"] = dataset["course_name"].map(normalize_text)
+    fee_dataset = load_fee_recommendation_dataset()
+    if not fee_dataset.empty:
+        fee_columns = fee_dataset[["institute_key", "course_name", "tuition_fee", "college_type"]].copy()
+        fee_columns["course_key"] = fee_columns["course_name"].map(normalize_text)
+        fee_columns = fee_columns.drop(columns=["course_name"]).drop_duplicates(["institute_key", "course_key"])
+        dataset = dataset.merge(fee_columns, on=["institute_key", "course_key"], how="left")
+
+    for column in ["institute_name", "course_name", "city", "college_type", "boys_hostel", "girls_hostel"]:
+        if column not in dataset.columns:
+            dataset[column] = ""
+    if "tuition_fee" not in dataset.columns:
+        dataset["tuition_fee"] = ""
+
     if institute_name:
-        fee_dataset = fee_dataset[
-            fee_dataset["institute_name"].astype(str).str.strip().str.casefold().str.contains(institute_name.casefold(), na=False)
-        ]
-    
+        dataset = dataset[dataset["institute_name"].astype(str).str.contains(institute_name, case=False, na=False)]
     if branch:
-        fee_dataset = fee_dataset[
-            fee_dataset["course_name"].astype(str).str.strip().str.casefold() == branch.casefold()
-        ]
-    
+        dataset = dataset[dataset["course_name"].astype(str).str.contains(branch, case=False, na=False)]
     if city:
-        fee_dataset = fee_dataset[
-            fee_dataset["city"].astype(str).str.strip().str.casefold() == city.casefold()
-        ]
-    
+        dataset = dataset[dataset["city"].astype(str).str.contains(city, case=False, na=False)]
     if college_type:
-        fee_dataset = fee_dataset[
-            fee_dataset["college_type"].astype(str).str.strip().str.casefold() == college_type.casefold()
-        ]
-    
-    # CRITICAL: Remove ALL duplicates by institute_key + course_name
-    # This ensures each college-branch combination appears exactly once
-    fee_dataset = fee_dataset.drop_duplicates(
-        subset=["institute_key", "course_name"],
-        keep="first"
-    )
-    
-    # Sort by institute name for consistent ordering
-    fee_dataset = fee_dataset.sort_values("institute_name", ascending=True)
-    
-    # Limit results
+        dataset = dataset[dataset["college_type"].astype(str).str.casefold() == college_type.casefold()]
+    if boys_hostel:
+        dataset = dataset[dataset["boys_hostel"].astype(str).str.casefold() == boys_hostel.casefold()]
+    if girls_hostel:
+        dataset = dataset[dataset["girls_hostel"].astype(str).str.casefold() == girls_hostel.casefold()]
+
+    dataset = dataset.drop_duplicates(subset=["institute_key", "course_name"], keep="first")
+    dataset = dataset.sort_values("institute_name", ascending=True)
     try:
         limit_value = int(limit)
     except (TypeError, ValueError):
         limit_value = 100
     
     limit_value = max(1, min(limit_value, 500))
-    
-    # Apply limit AFTER deduplication
-    fee_dataset = fee_dataset.head(limit_value)
-    
-    results_subset = fee_dataset[
-        ["institute_name", "course_name", "admission_field", "college_type", "city", "tuition_fee"]
-    ].copy()
-    
-    # Add website from institute master
-    if institute_master is not None:
-        website_map = dict(zip(institute_master["institute_name"], institute_master["official_website"]))
-        results_subset["official_website"] = results_subset["institute_name"].apply(
-            lambda x: website_map.get(x, "")
-        )
-    else:
-        results_subset["official_website"] = ""
-    
-    results = _json_safe_records(results_subset)
-    
-    return jsonify({"results": results})
+    dataset = dataset.head(limit_value)
+    columns = ["institute_name", "course_name", "admission_field", "college_type", "city", "boys_hostel", "girls_hostel", "tuition_fee", "official_website"]
+    return jsonify({"results": _json_safe_records(dataset[columns])})
 
 
 @app.route("/api/filter")

@@ -1,18 +1,16 @@
 # Admission Field Prediction System
 
-This project is a simple Flask + frontend starter for an AI-based Admission Field Prediction System.
+This project is a Flask + frontend Admission Field Prediction System.
 
-The current version includes a trained machine learning model for admission field prediction, an institute master extracted from the PDF, and a frontend that can search institutes by branch and hostel availability.
+The application predicts an admission field from rank, category, and quota, then lists matching institutes with hostel, city, fee, and website information. Training and inference share the same cleaning, normalization, and encoding contract.
 
 ## Project Structure
 
-- `data/` - placeholder for datasets
-- `data/institute_master.csv` - institute list extracted from the PDF with hostel and website fields
-- `data/acpc_admission_enriched.csv` - admissions data merged with institute details
-- `model/` - placeholder for saved model files
-- `backend/` - Flask backend code
-- `frontend/` - simple HTML, CSS, and JavaScript user interface
-- `notebook/` - placeholder for future model training code
+- `data/` - source CSV/XLSX admission data and institute metadata
+- `model/model.pkl` - generated model bundle containing the model, encoders, metrics, and feature order
+- `backend/` - shared preprocessing and Flask API
+- `frontend/` - HTML, CSS, and JavaScript user interface
+- `notebook/model_training.py` - model comparison and artifact generation
 - `requirements.txt` - Python dependencies
 
 ## How To Run
@@ -27,6 +25,12 @@ The current version includes a trained machine learning model for admission fiel
 
 	```bash
 	python backend/app.py
+	```
+
+If `model/model.pkl` does not exist, train it first:
+
+	```bash
+	python notebook/model_training.py
 	```
 
 3. Open your browser and visit:
@@ -49,6 +53,4 @@ The page also includes an institute search panel where you can filter by branch,
 
 ## Future Work
 
-The model can be improved later with more features, hyperparameter tuning, and better preprocessing.
-# AI_Project
-AI Project 
+The model is selected using held-out accuracy, precision, recall, weighted F1, and three-fold cross-validation. XGBoost and LightGBM are included automatically when installed.

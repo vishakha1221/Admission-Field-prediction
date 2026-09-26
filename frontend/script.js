@@ -312,7 +312,10 @@ form.addEventListener('submit', async (event) => {
 
     currentPredictionRows = Array.isArray(data.eligible_institutes) ? data.eligible_institutes : [];
     currentPredictionData = data;
-    setPredictionState(data.predicted_field || 'Prediction completed.', true);
+    const probability = typeof data.probability === 'number'
+      ? ` (${(data.probability * 100).toFixed(1)}% confidence)`
+      : '';
+    setPredictionState(`${data.predicted_field || 'Prediction completed.'}${probability}`, true);
     applyRecommendationFilters();
   } catch (error) {
     console.error('Prediction error:', error);
@@ -420,6 +423,9 @@ const searchInstituteForm = document.getElementById('institute-search-form');
 const searchInstituteTypeSelect = document.getElementById('search-institute-type');
 const searchOtherBranchSelect = document.getElementById('search-other-branch');
 const searchOtherCitySelect = document.getElementById('search-other-city');
+const searchOtherName = document.getElementById('search-other-name');
+const searchOtherBoysHostelSelect = document.getElementById('search-other-boys-hostel');
+const searchOtherGirlsHostelSelect = document.getElementById('search-other-girls-hostel');
 const searchOtherInstitutesButton = document.getElementById('search-other-institutes-btn');
 const otherSearchResults = document.getElementById('other-search-results');
 const otherSearchCount = document.getElementById('other-search-count');
@@ -473,8 +479,11 @@ if (searchOtherInstitutesButton) {
     const instituteType = searchInstituteTypeSelect ? searchInstituteTypeSelect.value.trim() : '';
     const branchFilter = searchOtherBranchSelect ? searchOtherBranchSelect.value.trim() : '';
     const cityFilter = searchOtherCitySelect ? searchOtherCitySelect.value.trim() : '';
+    const nameFilter = searchOtherName ? searchOtherName.value.trim() : '';
+    const boysHostelFilter = searchOtherBoysHostelSelect ? searchOtherBoysHostelSelect.value.trim() : '';
+    const girlsHostelFilter = searchOtherGirlsHostelSelect ? searchOtherGirlsHostelSelect.value.trim() : '';
 
-    if (!instituteType && !branchFilter && !cityFilter) {
+    if (!instituteType && !branchFilter && !cityFilter && !nameFilter && !boysHostelFilter && !girlsHostelFilter) {
       if (otherSearchCount) {
         otherSearchCount.textContent = '0 matches';
       }
@@ -491,6 +500,9 @@ if (searchOtherInstitutesButton) {
       if (instituteType) queryParams.append('college_type', instituteType);
       if (branchFilter) queryParams.append('branch', branchFilter);
       if (cityFilter) queryParams.append('city', cityFilter);
+      if (nameFilter) queryParams.append('institute_name', nameFilter);
+      if (boysHostelFilter) queryParams.append('boys_hostel', boysHostelFilter);
+      if (girlsHostelFilter) queryParams.append('girls_hostel', girlsHostelFilter);
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout

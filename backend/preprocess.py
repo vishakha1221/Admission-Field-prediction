@@ -180,6 +180,8 @@ QUOTA_STANDARD_MAP = {
 
 ALLOWED_CATEGORIES = {"GENERAL", "SC", "ST", "SEBC", "EWS", "TFWS"}
 ALLOWED_QUOTAS = {"D2D", "GUJCET"}
+FEATURE_COLUMNS = ["rank", "category", "quota"]
+TARGET_COLUMN = "admission_field"
 
 
 def _normalize_code(value):
@@ -216,19 +218,33 @@ def standardize_quota(value):
 
 def load_prediction_dataset():
 	"""Load the columns needed for prediction and clean them."""
-	dataset = pd.read_csv(DATA_FILE, usecols=["rank", "category", "quota", "admission_field"])
-	dataset = dataset.dropna().copy()
+	required_columns = [*FEATURE_COLUMNS, TARGET_COLUMN, "course_name"]
+	source = pd.read_csv(DATA_FILE)
+	missing_columns = [column for column in required_columns if column not in source.columns]
+	if missing_columns:
+		raise ValueError(f"Admission CSV is missing columns: {', '.join(missing_columns)}")
+
+	dataset = source[required_columns].copy()
+	dataset["rank"] = pd.to_numeric(dataset["rank"], errors="coerce")
+	dataset["category"] = dataset["category"].map(standardize_category)
+	dataset["quota"] = dataset["quota"].map(standardize_quota)
+	dataset["course_name"] = dataset["course_name"].fillna("").map(standardize_branch)
+	dataset["admission_field"] = dataset["admission_field"].fillna("").map(standardize_branch)
+	dataset["admission_field"] = dataset["admission_field"].where(
+		dataset["admission_field"] != "", dataset["course_name"]
+	)
 	dataset["category"] = dataset["category"].apply(standardize_category)
 	dataset["quota"] = dataset["quota"].apply(standardize_quota)
-	dataset["rank"] = pd.to_numeric(dataset["rank"], errors="coerce")
 	dataset = dataset.dropna(subset=["rank"])
 	dataset["rank"] = dataset["rank"].astype(int)
 	dataset = dataset[
 		(dataset["category"].astype(str).str.strip() != "")
 		& (dataset["quota"].astype(str).str.strip() != "")
-		& (dataset["admission_field"].astype(str).str.strip() != "")
+		& (dataset[TARGET_COLUMN].astype(str).str.strip() != "")
+		& (dataset["rank"] > 0)
 	].copy()
-	return dataset
+	# Keep genuine conflicting outcomes, but remove repeated copies of the same observation.
+	return dataset.drop_duplicates(subset=[*FEATURE_COLUMNS, TARGET_COLUMN]).reset_index(drop=True)
 
 
 def export_conflict_resolved_dataset(output_file=CONFLICT_FREE_DATA_FILE):
@@ -255,7 +271,7 @@ def encode_training_data(dataset):
 	encoded = dataset.copy()
 	encoded["category"] = category_encoder.fit_transform(encoded["category"].astype(str))
 	encoded["quota"] = quota_encoder.fit_transform(encoded["quota"].astype(str))
-	encoded["admission_field"] = target_encoder.fit_transform(encoded["admission_field"].astype(str))
+	encoded[TARGET_COLUMN] = target_encoder.fit_transform(encoded[TARGET_COLUMN].astype(str))
 
 	return encoded, category_encoder, quota_encoder, target_encoder
 

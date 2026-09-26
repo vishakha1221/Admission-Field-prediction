@@ -81,9 +81,9 @@
             <section class="result-card">
               <h3>Prediction Result</h3>
               <div id="prediction-empty" class="empty-state">
-
                 <p>No prediction yet. Submit your details to get your best-fit admission field.</p>
               </div>
+              <p id="result" class="result-text" aria-live="polite"></p>
               <div class="accuracy-controls">
                 <button type="button" id="check-accuracy-btn" class="btn btn-secondary">Check Accuracy</button>
               </div>
@@ -199,6 +199,11 @@
 
         <form id="institute-search-form" class="institute-search-form">
           <label>
+            College Name
+            <input id="search-other-name" type="search" placeholder="Search by college name">
+          </label>
+
+          <label>
             Institute Type
             <select id="search-institute-type">
               <option value="">All Types</option>
@@ -224,6 +229,24 @@
                 <option value="">All Cities</option>
               </select>
             </div>
+          </label>
+
+          <label>
+            Boys Hostel
+            <select id="search-other-boys-hostel">
+              <option value="">All</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </label>
+
+          <label>
+            Girls Hostel
+            <select id="search-other-girls-hostel">
+              <option value="">All</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
           </label>
 
           <div class="filter-action recommendation-action">

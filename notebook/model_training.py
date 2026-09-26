@@ -1,121 +1,101 @@
+"""Train and persist the best admission-field classifier."""
+
 from pathlib import Path
 import sys
 
 import joblib
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import AdaBoostClassifier, ExtraTreesClassifier, GradientBoostingClassifier, RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score, train_test_split
 from sklearn.tree import DecisionTreeClassifier
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_FILE = BASE_DIR / "data" / "acpc_admission_data.csv"
 MODEL_FILE = BASE_DIR / "model" / "model.pkl"
-
 if str(BASE_DIR) not in sys.path:
-	sys.path.insert(0, str(BASE_DIR))
+    sys.path.insert(0, str(BASE_DIR))
 
-from backend.preprocess import load_prediction_dataset
-
-
-def load_data():
-	"""Load and prepare the admission dataset."""
-	return load_prediction_dataset()
+from backend.preprocess import FEATURE_COLUMNS, TARGET_COLUMN, encode_training_data, load_prediction_dataset
 
 
-def encode_features(data):
-	"""Encode categorical columns into numeric values."""
-	category_encoder = LabelEncoder()
-	quota_encoder = LabelEncoder()
-	target_encoder = LabelEncoder()
-
-	encoded = data.copy()
-	encoded["category"] = category_encoder.fit_transform(encoded["category"])
-	encoded["quota"] = quota_encoder.fit_transform(encoded["quota"])
-	encoded["admission_field"] = target_encoder.fit_transform(encoded["admission_field"])
-
-	encoders = {
-		"category_encoder": category_encoder,
-		"quota_encoder": quota_encoder,
-		"target_encoder": target_encoder,
-	}
-
-	return encoded, encoders
-
-
-def train_models(features, target):
-	"""Split the data and train the required models."""
-	class_counts = target.value_counts()
-	stratify_target = target if class_counts.min() >= 2 else None
-
-	x_train, x_test, y_train, y_test = train_test_split(
-		features,
-		target,
-		test_size=0.2,
-		random_state=42,
-		stratify=stratify_target,
-	)
-
-	random_forest = RandomForestClassifier(
-		random_state=42,
-		n_estimators=25,
-		max_depth=15,
-		n_jobs=1,
-	)
-	random_forest.fit(x_train, y_train)
-	rf_predictions = random_forest.predict(x_test)
-
-	decision_tree = DecisionTreeClassifier(random_state=42, max_depth=15)
-	decision_tree.fit(x_train, y_train)
-	dt_predictions = decision_tree.predict(x_test)
-
-	rf_accuracy = accuracy_score(y_test, rf_predictions)
-	dt_accuracy = accuracy_score(y_test, dt_predictions)
-	rf_confusion = confusion_matrix(y_test, rf_predictions)
-
-	print(f"Random Forest Accuracy: {rf_accuracy:.4f}")
-	print(f"Decision Tree Accuracy: {dt_accuracy:.4f}")
-	print("Random Forest Confusion Matrix:")
-	print(rf_confusion)
-
-	return random_forest, x_test, y_test, rf_predictions
+def build_models():
+    """Return built-in candidates and optional third-party models."""
+    models = {
+        "Decision Tree": DecisionTreeClassifier(max_depth=20, min_samples_leaf=2, random_state=42),
+        "Random Forest": RandomForestClassifier(n_estimators=150, min_samples_leaf=2, n_jobs=-1, random_state=42),
+        "Extra Trees": ExtraTreesClassifier(n_estimators=150, min_samples_leaf=2, n_jobs=-1, random_state=42),
+        "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=42),
+        "AdaBoost": AdaBoostClassifier(n_estimators=100, random_state=42),
+    }
+    try:
+        from xgboost import XGBClassifier
+        models["XGBoost"] = XGBClassifier(
+            n_estimators=150, max_depth=6, learning_rate=0.08, subsample=0.9,
+            colsample_bytree=0.9, objective="multi:softprob", eval_metric="mlogloss",
+            n_jobs=2, random_state=42,
+        )
+    except ImportError:
+        pass
+    try:
+        from lightgbm import LGBMClassifier
+        models["LightGBM"] = LGBMClassifier(n_estimators=150, learning_rate=0.08, verbosity=-1, random_state=42)
+    except ImportError:
+        pass
+    return models
 
 
-def show_sample_predictions(x_test, y_test, y_pred, target_encoder):
-	"""Print a few sample predictions for inspection."""
-	sample_frame = pd.DataFrame(x_test, columns=["rank", "category", "quota"]).head(5).copy()
-	sample_frame["actual_admission_field"] = target_encoder.inverse_transform(y_test[:5])
-	sample_frame["predicted_admission_field"] = target_encoder.inverse_transform(y_pred[:5])
-	print("Sample Predictions:")
-	print(sample_frame.to_string(index=False))
+def evaluate_model(name, estimator, features, target, x_train, x_test, y_train, y_test):
+    """Fit a candidate, calculate holdout metrics, and run cross-validation."""
+    estimator.fit(x_train, y_train)
+    predictions = estimator.predict(x_test)
+    class_counts = target.value_counts()
+    folds = StratifiedKFold(n_splits=3, shuffle=True, random_state=42) if class_counts.min() >= 3 else KFold(n_splits=3, shuffle=True, random_state=42)
+    cv_accuracy = float(cross_val_score(estimator, features, target, cv=folds, scoring="accuracy", n_jobs=1).mean())
+    metrics = {
+        "model": name,
+        "accuracy": float(accuracy_score(y_test, predictions)),
+        "precision": float(precision_score(y_test, predictions, average="weighted", zero_division=0)),
+        "recall": float(recall_score(y_test, predictions, average="weighted", zero_division=0)),
+        "f1": float(f1_score(y_test, predictions, average="weighted", zero_division=0)),
+        "cross_validation_accuracy": cv_accuracy,
+        "confusion_matrix": confusion_matrix(y_test, predictions).tolist(),
+    }
+    print(f"{name}: accuracy={metrics['accuracy']:.4f}, precision={metrics['precision']:.4f}, recall={metrics['recall']:.4f}, f1={metrics['f1']:.4f}, cv={cv_accuracy:.4f}")
+    return estimator, metrics
 
 
 def main():
-	"""Run the full training workflow and save the model."""
-	data = load_data()
-	encoded_data, encoders = encode_features(data)
+    dataset = load_prediction_dataset()
+    encoded, category_encoder, quota_encoder, target_encoder = encode_training_data(dataset)
+    features = encoded[FEATURE_COLUMNS]
+    target = encoded[TARGET_COLUMN]
+    stratify_target = target if target.value_counts().min() >= 2 else None
+    x_train, x_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42, stratify=stratify_target)
 
-	features = encoded_data[["rank", "category", "quota"]]
-	target = encoded_data["admission_field"]
+    results = []
+    for name, estimator in build_models().items():
+        try:
+            results.append(evaluate_model(name, estimator, features, target, x_train, x_test, y_train, y_test))
+        except Exception as error:
+            print(f"Skipping {name}: {error}")
+    if not results:
+        raise RuntimeError("No candidate model could be trained")
 
-	model, x_test, y_test, y_pred = train_models(features, target)
-	show_sample_predictions(x_test, y_test, y_pred, encoders["target_encoder"])
-
-	# Save the model together with the encoders so future prediction code can reuse them.
-	MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-	joblib.dump(
-		{
-			"model": model,
-			"category_encoder": encoders["category_encoder"],
-			"quota_encoder": encoders["quota_encoder"],
-			"target_encoder": encoders["target_encoder"],
-		},
-		MODEL_FILE,
-	)
-	print(f"Saved trained model to: {MODEL_FILE}")
+    best_model, best_metrics = max(results, key=lambda item: (item[1]["f1"], item[1]["cross_validation_accuracy"]))
+    best_model.fit(features, target)
+    MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump({
+        "model": best_model,
+        "category_encoder": category_encoder,
+        "quota_encoder": quota_encoder,
+        "target_encoder": target_encoder,
+        "feature_order": FEATURE_COLUMNS,
+        "target_column": TARGET_COLUMN,
+        "metrics": best_metrics,
+        "training_rows": len(dataset),
+    }, MODEL_FILE)
+    print(f"Best model: {best_metrics['model']}")
+    print(f"Saved model bundle to: {MODEL_FILE}")
 
 
 if __name__ == "__main__":
-	main()
+    main()
