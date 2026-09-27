@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import unicodedata
 from urllib.parse import quote_plus
 
 import pandas as pd
@@ -178,8 +179,8 @@ QUOTA_STANDARD_MAP = {
 }
 
 
-ALLOWED_CATEGORIES = {"GENERAL", "SC", "ST", "SEBC", "EWS", "TFWS"}
-ALLOWED_QUOTAS = {"D2D", "GUJCET"}
+ALLOWED_CATEGORIES = {value for value in CATEGORY_STANDARD_MAP.values() if value}
+ALLOWED_QUOTAS = {value for value in QUOTA_STANDARD_MAP.values() if value}
 FEATURE_COLUMNS = ["rank", "category", "quota"]
 TARGET_COLUMN = "admission_field"
 
@@ -188,7 +189,7 @@ def _normalize_code(value):
 	"""Uppercase and normalize separators for category and quota codes."""
 	if pd.isna(value):
 		return ""
-	code = str(value).strip().upper()
+	code = unicodedata.normalize("NFKC", str(value)).strip().upper()
 	code = code.replace("/", "-")
 	code = re.sub(r"\s+", " ", code)
 	return code
@@ -357,6 +358,10 @@ def standardize_institute_name(value):
 	if not name:
 		return ""
 
+	for token in ["sfi", "gia", "ppp", "d2d", "gujcet", "tfws"]:
+		name = re.sub(rf"\b{token}\b", "", name)
+	name = re.sub(r"\s+", " ", name).strip()
+
 	# Normalize common spelling and abbreviation conflicts.
 	name = name.replace("enginerring", "engineering")
 	name = name.replace("enginering", "engineering")
@@ -365,6 +370,9 @@ def standardize_institute_name(value):
 	name = re.sub(r"\bbharuc\b", "bharuch", name)
 	name = re.sub(r"\bbharuch+h*\b", "bharuch", name)
 	name = name.replace("gandhinager", "gandhinagar")
+	name = name.replace("birla vishvakarma maha vidhyalaya", "birla vishvakarma mahavidyalaya")
+	name = name.replace("birla vishvakarma maha vidhylaya", "birla vishvakarma mahavidyalaya")
+	name = name.replace("birla vishvakarma maha vidhayalaya", "birla vishvakarma mahavidyalaya")
 	name = re.sub(r"\s+", " ", name).strip()
 
 	if name in INSTITUTE_STANDARD_MAP:

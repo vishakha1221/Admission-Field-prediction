@@ -99,7 +99,14 @@ def _extract_fee_amount(value):
     if value is None or pd.isna(value):
         return None
 
-    match = re.search(r"(\d[\d,]*)", str(value))
+    text = str(value).strip()
+    if re.search(r"\b(?:boys|girls|hostel|nil)\b", text, flags=re.IGNORECASE):
+        return None
+
+    if not re.fullmatch(r"[₹$]?\s*\d[\d,]*(?:\.\d+)?\s*(?:/-|/|-)?", text):
+        return None
+
+    match = re.search(r"(\d[\d,]*)", text)
     if not match:
         return None
 
@@ -163,33 +170,57 @@ def load_fee_recommendation_dataset():
     dataset["academic_year_sort"] = dataset["academic_year"].map(_academic_year_sort_key)
     dataset["institute_key"] = dataset["institute_name"].map(normalize_text)
 
+    known_types = (
+        dataset.loc[dataset["college_type"] != ""]
+        .drop_duplicates("institute_key")
+        .set_index("institute_key")["college_type"]
+        .to_dict()
+    )
+    dataset["college_type"] = dataset.apply(
+        lambda row: row["college_type"]
+        or known_types.get(row["institute_key"], "")
+        or _infer_college_type(row["institute_name"]),
+        axis=1,
+    )
+
     institute_master = load_institute_master_dataset()
     lookup = load_institute_master_lookup()
 
     dataset["official_website"] = dataset["institute_key"].map(
         lambda key: lookup.get(str(key), {}).get("official_website", "")
     ).fillna("").astype(str).str.strip()
-    dataset["city"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("city", "")).fillna("").astype(str).str.strip()
-    dataset["boys_hostel"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("boys_hostel", "")).fillna("").astype(str).str.strip()
-    dataset["girls_hostel"] = dataset["institute_key"].map(lambda key: lookup.get(str(key), {}).get("girls_hostel", "")).fillna("").astype(str).str.strip()
+    dataset["city"] = dataset.apply(
+        lambda row: lookup.get(str(row["institute_key"]), {}).get("city")
+        or infer_city(row["institute_name"]),
+        axis=1,
+    )
+    dataset["district"] = dataset["district"].where(dataset["district"] != "", dataset["city"])
+    dataset["boys_hostel"] = dataset.apply(
+        lambda row: lookup.get(str(row["institute_key"]), {}).get("boys_hostel") or "Unknown",
+        axis=1,
+    )
+    dataset["girls_hostel"] = dataset.apply(
+        lambda row: lookup.get(str(row["institute_key"]), {}).get("girls_hostel") or "Unknown",
+        axis=1,
+    )
+    dataset["tuition_fee"] = dataset["tuition_fee"].replace("", "Not available")
     dataset = dataset[
         (dataset["institute_name"].astype(str).str.strip() != "")
         & (dataset["course_name"].astype(str).str.strip() != "")
         & (dataset["admission_field"].astype(str).str.strip() != "")
         & (dataset["category"].astype(str).str.strip() != "")
         & (dataset["quota"].astype(str).str.strip() != "")
-        & (dataset["college_type"].astype(str).str.strip() != "")
-        & (dataset["district"].astype(str).str.strip() != "")
-        & dataset["fee_amount"].notna()
+        & dataset["rank_floor"].notna()
+        & dataset["rank_ceiling"].notna()
     ].copy()
 
     dataset = dataset.sort_values(
         ["academic_year_sort", "fee_amount", "rank_ceiling", "rank_floor", "institute_name"],
         ascending=[False, True, True, True, True],
     )
-    # Remove duplicates: keep one row per college-branch combination (ignore category/quota)
+    # Preserve separate historical cutoffs for each category, quota, and year.
     dataset = dataset.drop_duplicates(
-        subset=["institute_key", "course_name"],
+        subset=["institute_key", "course_name", "category", "quota", "academic_year"],
         keep="first",
     )
     return dataset
@@ -205,6 +236,15 @@ def _normalize_college_type(value):
         return ""
 
     return text
+
+def _infer_college_type(institute_name):
+    """Fill missing source labels using conservative institute-name rules."""
+    name = normalize_text(institute_name)
+    if "government" in name or re.search(r"\bgec\b", name) or "ld college" in name:
+        return "Govt"
+    if re.search(r"\bgia\b", name):
+        return "GIA"
+    return "SFI"
 
 
 def _json_safe_value(value):
@@ -250,35 +290,32 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
     selected_field = standardize_branch(predicted_field)
     selected_college_type = _normalize_college_type(college_type)
 
-    if selected_category:
-        source_dataset = source_dataset[source_dataset["category"].astype(str).str.casefold() == selected_category.casefold()]
-    if selected_quota:
-        source_dataset = source_dataset[source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold()]
+    base_dataset = source_dataset.copy()
     if selected_college_type:
-        source_dataset = source_dataset[source_dataset["college_type"].astype(str).str.casefold() == selected_college_type.casefold()]
+        base_dataset = base_dataset[base_dataset["college_type"].astype(str).str.casefold() == selected_college_type.casefold()]
 
     if fee_min is not None:
-        source_dataset = source_dataset[source_dataset["fee_amount"] >= fee_min]
+        base_dataset = base_dataset[base_dataset["fee_amount"] >= fee_min]
     if fee_max is not None:
-        source_dataset = source_dataset[source_dataset["fee_amount"] <= fee_max]
+        base_dataset = base_dataset[base_dataset["fee_amount"] <= fee_max]
 
     candidate_datasets = []
     if selected_category and selected_quota:
         candidate_datasets.append(
-            source_dataset[
-                (source_dataset["category"].astype(str).str.casefold() == selected_category.casefold())
-                & (source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold())
+            base_dataset[
+                (base_dataset["category"].astype(str).str.casefold() == selected_category.casefold())
+                & (base_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold())
             ].copy()
         )
     if selected_category:
         candidate_datasets.append(
-            source_dataset[source_dataset["category"].astype(str).str.casefold() == selected_category.casefold()].copy()
+            base_dataset[base_dataset["category"].astype(str).str.casefold() == selected_category.casefold()].copy()
         )
     if selected_quota:
         candidate_datasets.append(
-            source_dataset[source_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold()].copy()
+            base_dataset[base_dataset["quota"].astype(str).str.casefold() == selected_quota.casefold()].copy()
         )
-    candidate_datasets.append(source_dataset.copy())
+    candidate_datasets.append(base_dataset.copy())
 
     windows = [500, 2000, 5000, 20000, 50000]
     dataset = pd.DataFrame()
@@ -317,7 +354,10 @@ def _recommend_eligible_institutes(rank, category, quota, predicted_field, fee_m
         if not exact_field_rows.empty:
             dataset = pd.concat([exact_field_rows, dataset], ignore_index=True)
             # After preferring exact field rows, dedupe by institute+branch so we don't repeat the same branch
-            dataset = dataset.drop_duplicates(subset=["institute_key", "course_name"], keep="first")
+            dataset = dataset.drop_duplicates(
+                subset=["institute_key", "course_name", "category", "quota", "academic_year"],
+                keep="first",
+            )
 
     dataset["rank_gap"] = (
         dataset[["rank_floor", "rank_ceiling"]].max(axis=1) - rank
@@ -364,8 +404,7 @@ def _build_prediction_response(rank, category, quota, fee_min=None, fee_max=None
     if not model_bundle:
         return None, None
 
-    predicted_field = _predict_field(model_bundle, rank, category, quota)
-    prediction_probability = _prediction_probability(model_bundle, rank, category, quota)
+    predicted_field, prediction_probability = _historical_field_prediction(rank, category, quota)
     eligible_institutes, matched_predicted_field = _recommend_eligible_institutes(
         rank=rank,
         category=category,
@@ -387,6 +426,12 @@ def _build_prediction_response(rank, category, quota, fee_min=None, fee_max=None
         "college_type": _normalize_college_type(college_type),
         "eligible_institutes": eligible_institutes,
         "eligible_count": len(eligible_institutes),
+        "college_type_counts": {
+            str(college_type): int(count)
+            for college_type, count in pd.Series(
+                [row.get("college_type", "Not available") or "Not available" for row in eligible_institutes]
+            ).value_counts().items()
+        },
         "matched_predicted_field": matched_predicted_field,
     }
 
@@ -506,6 +551,40 @@ def _prediction_probability(model_bundle, rank, category, quota):
     )
     probabilities = model_bundle["model"].predict_proba(features)[0]
     return round(float(max(probabilities)), 4)
+
+
+def _historical_field_prediction(rank, category, quota):
+    """Predict the most common field among comparable historical rank rows."""
+    dataset = load_prediction_dataset()
+    selected_category = standardize_category(category or PREDICTION_DEFAULTS["category"])
+    selected_quota = standardize_quota(quota or PREDICTION_DEFAULTS["quota"])
+    comparable = dataset[
+        (dataset["category"].astype(str).str.casefold() == selected_category.casefold())
+        & (dataset["quota"].astype(str).str.casefold() == selected_quota.casefold())
+    ].copy()
+    if comparable.empty:
+        comparable = dataset.copy()
+
+    selected_window = 0
+    local = comparable
+    for window in [500, 2000, 5000, 20000, 50000]:
+        candidate = comparable[
+            comparable["rank"].between(rank - window, rank + window)
+        ]
+        if len(candidate) >= 10:
+            local = candidate
+            selected_window = window
+            break
+        if not candidate.empty:
+            local = candidate
+            selected_window = window
+
+    counts = local["admission_field"].astype(str).value_counts()
+    if counts.empty:
+        return "Unknown", None
+    predicted_field = str(counts.index[0])
+    confidence = round(float(counts.iloc[0] / counts.sum()), 4)
+    return predicted_field, confidence
 
 
 def _estimate_segment_accuracy(model_bundle, rank, category, quota):
@@ -758,19 +837,18 @@ def options():
     dataset = load_institute_search_dataset()
     prediction_dataset = load_prediction_dataset()
 
-    allowed_keys = None
     master_institutes = None
     institute_master = load_institute_master_dataset()
     if institute_master is not None:
         master_institutes = institute_master["institute_name"].tolist()
-        allowed_keys = set(institute_master["_dedupe_key"].tolist())
-        dataset["_institute_key"] = dataset["institute_name"].astype(str).map(normalize_text)
-        dataset = dataset[dataset["_institute_key"].isin(allowed_keys)]
 
     branches = sorted(_unique_values(dataset, "course_name"))
     if master_institutes is not None:
-        institutes = sorted(master_institutes)
-        cities = sorted({infer_city(name) for name in master_institutes if str(name).strip()})
+        institutes = sorted(set(master_institutes) | set(_unique_values(dataset, "institute_name")))
+        cities = sorted(
+            {infer_city(name) for name in master_institutes if str(name).strip()}
+            | set(_unique_values(dataset, "city"))
+        )
     else:
         cities = sorted(_unique_values(dataset, "city"))
         institutes = sorted(_unique_values(dataset, "institute_name"))
@@ -820,6 +898,15 @@ def search_institutes():
             dataset[column] = ""
     if "tuition_fee" not in dataset.columns:
         dataset["tuition_fee"] = ""
+    dataset["city"] = dataset.apply(
+        lambda row: str(row["city"]).strip() or infer_city(row["institute_name"]), axis=1
+    )
+    dataset["college_type"] = dataset.apply(
+        lambda row: str(row["college_type"]).strip() or _infer_college_type(row["institute_name"]),
+        axis=1,
+    )
+    dataset["boys_hostel"] = dataset["boys_hostel"].replace("", "Unknown").fillna("Unknown")
+    dataset["girls_hostel"] = dataset["girls_hostel"].replace("", "Unknown").fillna("Unknown")
 
     if institute_name:
         dataset = dataset[dataset["institute_name"].astype(str).str.contains(institute_name, case=False, na=False)]
@@ -860,8 +947,8 @@ def filter_institutes():
     page = request.args.get("page", "1")
     show_all = str(limit).strip().casefold() == "all"
 
-    # Enforce institue_master1.csv as the source-of-truth when available.
-    institute_master_source = load_institute_master_dataset()
+    # Admissions-derived rows are the source of truth; institute master enriches them upstream.
+    institute_master_source = None
     if institute_master_source is not None:
         institute_master = institute_master_source.copy()
 

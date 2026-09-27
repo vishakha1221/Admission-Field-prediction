@@ -1,6 +1,7 @@
 const form = document.getElementById('prediction-form');
 const result = document.getElementById('result');
 const predictionEmpty = document.getElementById('prediction-empty');
+const matchSummary = document.getElementById('match-summary');
 const resultBadge = document.getElementById('result-badge');
 const checkAccuracyButton = document.getElementById('check-accuracy-btn');
 const accuracyResult = document.getElementById('accuracy-result');
@@ -18,20 +19,14 @@ const recommendationNote = document.getElementById('recommendation-note');
 
 const categorySelect = document.getElementById('category');
 const quotaSelect = document.getElementById('quota');
-const citySelect = document.getElementById('filter-city');
-const branchSelect = document.getElementById('filter-branch');
-const boysHostelSelect = document.getElementById('filter-boys-hostel');
-const girlsHostelSelect = document.getElementById('filter-girls-hostel');
-const filterForm = document.getElementById('filter-form');
-const filterResults = document.getElementById('filter-results');
 
-const DEFAULT_PAGE_SIZE = '10';
+const RECOMMENDATION_PAGE_SIZE = 10;
+const OTHER_SEARCH_PAGE_SIZE = 10;
 let currentPredictionRows = [];
 let currentPredictionData = null;
-let activeFilters = {};
-let isFetchingPage = false;
-let lastFilterKey = '';
-const institutePageCache = new Map();
+let recommendationPage = 1;
+let otherSearchPage = 1;
+let currentOtherSearchRows = [];
 
 function setPredictionState(message, isSuccess = false) {
   if (result) result.textContent = message;
@@ -112,6 +107,31 @@ function renderRecommendationRows(rows) {
   }).join('');
 }
 
+function renderRecommendationPagination(total, totalPages, page) {
+  const container = document.getElementById('recommendation-pagination');
+  if (!container) return;
+  if (!total) {
+    container.innerHTML = '';
+    return;
+  }
+  const start = (page - 1) * RECOMMENDATION_PAGE_SIZE + 1;
+  const end = Math.min(page * RECOMMENDATION_PAGE_SIZE, total);
+  container.innerHTML = `
+    <span>Showing ${start}-${end} of ${total}</span>
+    <button type="button" class="btn btn-secondary" data-page-action="previous" ${page === 1 ? 'disabled' : ''}>Previous</button>
+    <span>Page ${page} of ${totalPages}</span>
+    <button type="button" class="btn btn-secondary" data-page-action="next" ${page === totalPages ? 'disabled' : ''}>Next</button>
+  `;
+  container.querySelector('[data-page-action="previous"]').addEventListener('click', () => {
+    recommendationPage = Math.max(1, recommendationPage - 1);
+    applyRecommendationFilters();
+  });
+  container.querySelector('[data-page-action="next"]').addEventListener('click', () => {
+    recommendationPage = Math.min(totalPages, recommendationPage + 1);
+    applyRecommendationFilters();
+  });
+}
+
 function collectPredictionPayload() {
   return {
     rank: document.getElementById('rank').value,
@@ -164,12 +184,16 @@ function applyRecommendationFilters() {
   }
   if (filters.feeMin !== null && filters.feeMax !== null) {
     rows = rows.filter((row) => {
-      const fee = parseInt(row.tuition_fee, 10);
-      return !isNaN(fee) && fee >= filters.feeMin && fee <= filters.feeMax;
+      const fee = Number(row.fee_amount);
+      return Number.isFinite(fee) && fee >= filters.feeMin && fee <= filters.feeMax;
     });
   }
 
-  renderRecommendationRows(rows);
+  const totalPages = Math.max(1, Math.ceil(rows.length / RECOMMENDATION_PAGE_SIZE));
+  recommendationPage = Math.min(recommendationPage, totalPages);
+  const start = (recommendationPage - 1) * RECOMMENDATION_PAGE_SIZE;
+  renderRecommendationRows(rows.slice(start, start + RECOMMENDATION_PAGE_SIZE));
+  renderRecommendationPagination(rows.length, totalPages, recommendationPage);
 
   if (!currentPredictionData) {
     setRecommendationSummary(0, 'Run a prediction to see verified institute matches.');
@@ -227,6 +251,7 @@ function loadStaticSearchOptions() {
       <option value="">All</option>
       <option value="Yes">Yes</option>
       <option value="No">No</option>
+      <option value="Unknown">Unknown</option>
     `;
   }
 
@@ -235,6 +260,7 @@ function loadStaticSearchOptions() {
       <option value="">All</option>
       <option value="Yes">Yes</option>
       <option value="No">No</option>
+      <option value="Unknown">Unknown</option>
     `;
   }
 }
@@ -312,11 +338,21 @@ form.addEventListener('submit', async (event) => {
 
     currentPredictionRows = Array.isArray(data.eligible_institutes) ? data.eligible_institutes : [];
     currentPredictionData = data;
+    recommendationPage = 1;
     const probability = typeof data.probability === 'number'
       ? ` (${(data.probability * 100).toFixed(1)}% confidence)`
       : '';
     setPredictionState(`${data.predicted_field || 'Prediction completed.'}${probability}`, true);
+    if (matchSummary) {
+      const typeSummary = Object.entries(data.college_type_counts || {})
+        .map(([type, count]) => `${type}: ${count}`)
+        .join(' | ');
+      matchSummary.textContent = `${data.eligible_count || 0} verified institutes matched by rank${typeSummary ? ` (${typeSummary})` : ''}.`;
+    }
     applyRecommendationFilters();
+    if (checkAccuracyButton) {
+      checkAccuracyButton.click();
+    }
   } catch (error) {
     console.error('Prediction error:', error);
     setPredictionState('Unable to connect to the backend.', false);
@@ -363,6 +399,9 @@ if (checkAccuracyButton) {
       const modelAccuracy = typeof data.model_training_accuracy === 'number'
         ? `${(data.model_training_accuracy * 100).toFixed(2)}%`
         : 'N/A';
+      const modelConfidence = typeof data.probability === 'number'
+        ? `${(data.probability * 100).toFixed(2)}%`
+        : 'N/A';
       const similarRows = data.similar_rows_used || 0;
       const rankWindow = data.rank_window || 0;
 
@@ -377,8 +416,16 @@ if (checkAccuracyButton) {
             <span class="accuracy-metric-value">${escapeHtml(data.predicted_field)}</span>
           </div>
           <div class="accuracy-metric">
-            <span class="accuracy-metric-label">Estimated Input Accuracy:</span>
+            <span class="accuracy-metric-label">Historical accuracy for similar ranks:</span>
             <span class="accuracy-metric-value">${estimatedInputAccuracy}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Model confidence for this prediction:</span>
+            <span class="accuracy-metric-value">${modelConfidence}</span>
+          </div>
+          <div class="accuracy-metric">
+            <span class="accuracy-metric-label">Meaning:</span>
+            <span class="accuracy-metric-value">Approximate dataset match, not a guarantee</span>
           </div>
           <div class="accuracy-metric">
             <span class="accuracy-metric-label">Model Training Accuracy:</span>
@@ -401,7 +448,7 @@ if (checkAccuracyButton) {
           }
         }
         
-        accuracyResult.textContent = `✓ Accuracy checked for ${data.predicted_field}`;
+        accuracyResult.textContent = `Accuracy checked for ${data.predicted_field}`;
       }
     } catch (error) {
       console.error('Accuracy check error:', error);
@@ -414,9 +461,17 @@ if (checkAccuracyButton) {
 
 if (searchRecommendationsButton) {
   searchRecommendationsButton.addEventListener('click', () => {
+    recommendationPage = 1;
     applyRecommendationFilters();
   });
 }
+
+[searchCitySelect, searchBranchSelect, searchTypeSelect, searchBoysHostelSelect, searchGirlsHostelSelect, searchFeeRangeSelect]
+  .filter(Boolean)
+  .forEach((element) => element.addEventListener('change', () => {
+    recommendationPage = 1;
+    applyRecommendationFilters();
+  }));
 
 // Optional search form for other colleges
 const searchInstituteForm = document.getElementById('institute-search-form');
@@ -460,6 +515,39 @@ function renderOtherSearchResults(rows) {
   }).join('');
 }
 
+function renderOtherSearchPagination(total, totalPages, page) {
+  const container = document.getElementById('other-search-pagination');
+  if (!container) return;
+  if (!total) {
+    container.innerHTML = '';
+    return;
+  }
+  const start = (page - 1) * OTHER_SEARCH_PAGE_SIZE + 1;
+  const end = Math.min(page * OTHER_SEARCH_PAGE_SIZE, total);
+  container.innerHTML = `
+    <span>Showing ${start}-${end} of ${total}</span>
+    <button type="button" class="btn btn-secondary" data-other-page="previous" ${page === 1 ? 'disabled' : ''}>Previous</button>
+    <span>Page ${page} of ${totalPages}</span>
+    <button type="button" class="btn btn-secondary" data-other-page="next" ${page === totalPages ? 'disabled' : ''}>Next</button>
+  `;
+  container.querySelector('[data-other-page="previous"]').addEventListener('click', () => {
+    otherSearchPage = Math.max(1, otherSearchPage - 1);
+    renderOtherSearchPage();
+  });
+  container.querySelector('[data-other-page="next"]').addEventListener('click', () => {
+    otherSearchPage = Math.min(totalPages, otherSearchPage + 1);
+    renderOtherSearchPage();
+  });
+}
+
+function renderOtherSearchPage() {
+  const totalPages = Math.max(1, Math.ceil(currentOtherSearchRows.length / OTHER_SEARCH_PAGE_SIZE));
+  otherSearchPage = Math.min(otherSearchPage, totalPages);
+  const start = (otherSearchPage - 1) * OTHER_SEARCH_PAGE_SIZE;
+  renderOtherSearchResults(currentOtherSearchRows.slice(start, start + OTHER_SEARCH_PAGE_SIZE));
+  renderOtherSearchPagination(currentOtherSearchRows.length, totalPages, otherSearchPage);
+}
+
 async function initializeSearchForm() {
   // Load options for search form
   const response = await fetch('/api/options');
@@ -484,10 +572,13 @@ if (searchOtherInstitutesButton) {
     const girlsHostelFilter = searchOtherGirlsHostelSelect ? searchOtherGirlsHostelSelect.value.trim() : '';
 
     if (!instituteType && !branchFilter && !cityFilter && !nameFilter && !boysHostelFilter && !girlsHostelFilter) {
+      currentOtherSearchRows = [];
+      otherSearchPage = 1;
       if (otherSearchCount) {
         otherSearchCount.textContent = '0 matches';
       }
       renderOtherSearchResults([]);
+      renderOtherSearchPagination(0, 1, 1);
       return;
     }
 
@@ -520,11 +611,13 @@ if (searchOtherInstitutesButton) {
       }
 
       const results = Array.isArray(data.results) ? data.results : [];
+      currentOtherSearchRows = results;
+      otherSearchPage = 1;
       if (otherSearchCount) {
         otherSearchCount.textContent = `${results.length} match${results.length === 1 ? '' : 'es'}`;
       }
 
-      renderOtherSearchResults(results);
+      renderOtherSearchPage();
       if (otherSearchResults) {
         otherSearchResults.style.display = results.length > 0 ? 'block' : 'none';
       }

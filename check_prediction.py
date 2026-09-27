@@ -3,7 +3,12 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from backend.preprocess import encode_training_data, load_prediction_dataset
+from backend.preprocess import (
+    encode_training_data,
+    load_prediction_dataset,
+    standardize_category,
+    standardize_quota,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -57,6 +62,8 @@ def check_prediction(rank, category, quota, actual_admission_field):
     """Print the prediction result and whether it matches the actual field."""
     model, category_encoder, quota_encoder, target_encoder, _ = load_model_bundle()
 
+    category = standardize_category(category)
+    quota = standardize_quota(quota)
     category_encoded = category_encoder.transform([category])[0]
     quota_encoded = quota_encoder.transform([quota])[0]
 
