@@ -240,7 +240,12 @@ def _normalize_college_type(value):
 def _infer_college_type(institute_name):
     """Fill missing source labels using conservative institute-name rules."""
     name = normalize_text(institute_name)
-    if "government" in name or re.search(r"\bgec\b", name) or "ld college" in name:
+    if (
+        "government" in name
+        or re.search(r"\bgec\b", name)
+        or "ld college" in name
+        or "l d college" in name
+    ):
         return "Govt"
     if re.search(r"\bgia\b", name):
         return "GIA"

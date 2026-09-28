@@ -553,6 +553,10 @@ async function initializeSearchForm() {
   const response = await fetch('/api/options');
   const data = await response.json();
 
+  if (Array.isArray(data.institutes) && searchOtherName) {
+    loadSelectOptions(searchOtherName, data.institutes, 'All Colleges');
+  }
+
   if (Array.isArray(data.branches) && searchOtherBranchSelect) {
     loadSelectOptions(searchOtherBranchSelect, data.branches, 'All Branches');
   }
