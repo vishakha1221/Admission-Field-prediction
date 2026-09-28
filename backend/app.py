@@ -849,14 +849,25 @@ def options():
 
     branches = sorted(_unique_values(dataset, "course_name"))
     if master_institutes is not None:
-        institutes = sorted(set(master_institutes) | set(_unique_values(dataset, "institute_name")))
+        institute_candidates = [*master_institutes, *_unique_values(dataset, "institute_name")]
         cities = sorted(
             {infer_city(name) for name in master_institutes if str(name).strip()}
             | set(_unique_values(dataset, "city"))
         )
     else:
         cities = sorted(_unique_values(dataset, "city"))
-        institutes = sorted(_unique_values(dataset, "institute_name"))
+        institute_candidates = _unique_values(dataset, "institute_name")
+
+    institutes_by_key = {}
+    for candidate in institute_candidates:
+        canonical_name = standardize_institute_name(candidate)
+        institute_key = normalize_text(canonical_name)
+        if not institute_key:
+            continue
+        current_name = institutes_by_key.get(institute_key, "")
+        if len(canonical_name) > len(current_name):
+            institutes_by_key[institute_key] = canonical_name
+    institutes = sorted(institutes_by_key.values())
     boys_hostel_options = sorted(_unique_values(dataset, "boys_hostel"))
     girls_hostel_options = sorted(_unique_values(dataset, "girls_hostel"))
     categories = sorted(_unique_values(prediction_dataset, "category"))
